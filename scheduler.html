@@ -66,11 +66,23 @@
     </div>
 
     <div id="stepActions" class="section actions" style="display:none;">
-      <button id="btnGenerate" class="btn" disabled>📅 Generate Schedule</button>
+      <button id="btnGenerate" class="btn">📅 Generate Schedule</button>
       <button id="btnViewCurrent" class="btn">👁️ View Current Schedule</button>
     </div>
 
     <div id="output" class="section"></div>
+    
+    <!-- Edit Mode UI -->
+    <div id="editModeSection" class="section card" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h3 style="margin:0;">📝 Edit Schedule Before Saving</h3>
+        <div class="actions">
+          <button id="btnCancelEdit" class="btn btn-danger">Cancel</button>
+          <button id="btnSaveSchedule" class="btn">💾 Save Schedule</button>
+        </div>
+      </div>
+      <div id="editContent"></div>
+    </div>
   </div>
 
   <!-- Generation Options Modal -->
@@ -103,12 +115,30 @@
     </div>
   </div>
 
+  <!-- Schedule Title Modal -->
+  <div id="titlePromptOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center;">
+    <div style="background:#0f172a;border:1px solid #1f2937;color:#e5e7eb;border-radius:12px;min-width:400px;max-width:92vw;padding:1.5rem;">
+      <h3 style="margin:.25rem 0 1rem;">📋 Name This Schedule</h3>
+      <label style="display:block; margin-bottom:1rem;">
+        Schedule Title:
+        <input type="text" id="scheduleTitle" placeholder="e.g., Fall 2025 Week 1" style="width:100%;padding:.75rem;margin-top:.5rem;border-radius:8px;border:1px solid #334155;background:#0b0b0b;color:#e5e7eb;font-size:1rem;" />
+      </label>
+      <div style="color:#94a3b8; font-size:0.9rem; margin-bottom:1rem;">
+        This helps you identify different schedules. A timestamp will be automatically added.
+      </div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+        <button id="titleCancel" class="btn" style="background:#475569;">Cancel</button>
+        <button id="titleConfirm" class="btn">Continue</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import './firebase/config.js';
     import { getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect, isAdminUser } from './JS/admin-status.js';
     import { collection, getDocs, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
-  import { generateScheduleFromWorkers, loadHoursOfOperation, parseAvailabilityString as parseAvail } from './JS/schedule-generation.js';
+  import { generateScheduleFromWorkers, generateScheduleInMemory, saveScheduleToDatabase, loadHoursOfOperation, parseAvailabilityString as parseAvail } from './JS/schedule-generation.js';
     import { loadCurrentSchedule, renderSchedule } from './JS/view-schedule.js';
 
   const status = document.getElementById('status');
@@ -119,14 +149,17 @@
     const stepActions = document.getElementById('stepActions');
     const output = document.getElementById('output');
     const workersTableDiv = document.getElementById('workersTable');
-    const btnVerify = document.getElementById('btnVerify');
+  const btnVerify = document.getElementById('btnVerify');
   const btnGenerate = document.getElementById('btnGenerate');
+  const editModeSection = document.getElementById('editModeSection');
+  const editContent = document.getElementById('editContent');
+  const btnSaveSchedule = document.getElementById('btnSaveSchedule');
+  const btnCancelEdit = document.getElementById('btnCancelEdit');
   console.log('🔍 Button elements found:', { btnVerify, btnGenerate });
 
     let selectedWP = null; let db = null; let isAdmin = false;
     let allWorkers = [];
-
-    function h(tag, attrs={}, children=[]) { const e=document.createElement(tag); Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); }); (Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c)); return e; }
+    let pendingSchedule = null; // Holds schedule before saving    function h(tag, attrs={}, children=[]) { const e=document.createElement(tag); Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); }); (Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c)); return e; }
 
     function renderWorkersPicklist(workers) {
       const table = h('table');
@@ -148,7 +181,7 @@
           h('td',{}, w['Availability']||w['Days & Times Available']||'')
         );
         tbody.append(row);
-        cb.addEventListener('change', ()=>{ verification.checked=false; btnGenerate.disabled=true; });
+        cb.addEventListener('change', ()=>{ verification.checked=false; });
       });
       table.append(thead, tbody);
       workersTableDiv.innerHTML=''; workersTableDiv.append(table);
@@ -166,7 +199,8 @@
       renderWorkersPicklist(allWorkers);
       status.textContent = `Loaded ${allWorkers.length} workers`;
       stepWorkers.style.display='block'; verifySection.style.display='block'; stepActions.style.display='flex';
-      btnGenerate.disabled = true; // require verify first
+      // Don't disable - let user try to generate (we'll check verification inside the handler)
+      console.log('✅ Workers loaded, generate button enabled');
     }
 
     wpGrid.addEventListener('click', async (e)=>{
@@ -193,6 +227,7 @@
         const cb = tr.querySelector('input[type="checkbox"]');
         if (wsText.includes('yes')) cb.checked = true; else cb.checked = false;
       });
+      verification.checked=false;
     };
     document.getElementById('selectAllReg').onclick = ()=>{
       workersTableDiv.querySelectorAll('tbody tr').forEach(tr=>{
@@ -200,10 +235,11 @@
         const cb = tr.querySelector('input[type="checkbox"]');
         if (wsText.includes('yes')) cb.checked = false; else cb.checked = true;
       });
+      verification.checked=false;
     };
     document.getElementById('clearAll').onclick = ()=>{
       workersTableDiv.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=false);
-      verification.checked=false; btnGenerate.disabled=true;
+      verification.checked=false;
     };
 
     // Availability verification
@@ -227,7 +263,7 @@
     function isAvailableRanges(ranges, start, end){ return (ranges||[]).some(r=> r.start<=start && r.end>=end); }
     async function verifyAvailability(){
       verifyOutput.innerHTML = '<div class="note">Checking…</div>';
-  let chosen = getSelectedWorkers(); if (!chosen.length){ verifyOutput.innerHTML='<div class="note">Select workers first.</div>'; verification={checked:true,ok:false,report:[]}; btnGenerate.disabled=true; return; }
+  let chosen = getSelectedWorkers(); if (!chosen.length){ verifyOutput.innerHTML='<div class="note">Select workers first.</div>'; verification={checked:true,ok:false,report:[]}; return; }
       const hours = await loadHoursOfOperation(db); const windows = buildWindows(hours);
       const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
       const rows=[]; let ok=true; const failures=[];
@@ -250,9 +286,8 @@
       rows.forEach(r=>{ const tr=document.createElement('tr'); const status=r.pass?'OK':'Needs Fix'; tr.innerHTML = `<td>${r.w['First Name']||''} ${r.w['Last Name']||''}</td><td>${r.ws?'Yes':'No'}</td><td>${r.total}</td><td>${r.maxBlock}</td><td>${status}</td>`; body.appendChild(tr); });
       tbl.appendChild(body);
   verifyOutput.innerHTML=''; verifyOutput.appendChild(tbl);
-  if (rows.length===0){ verifyOutput.innerHTML = '<div class="note">All selected workers have empty availability strings and were skipped.</div>'; verification={checked:true,ok:false,report:[]}; btnGenerate.disabled=true; return; }
+  if (rows.length===0){ verifyOutput.innerHTML = '<div class="note">All selected workers have empty availability strings and were skipped.</div>'; verification={checked:true,ok:false,report:[]}; return; }
       verification = { checked:true, ok, report:rows };
-      btnGenerate.disabled = !ok;
       if (!ok) status.textContent = 'Verification failed — fix workers shown as "Needs Fix"'; else status.textContent = 'Verification passed — ready to generate';
     }
     btnVerify.addEventListener('click', verifyAvailability);
@@ -275,9 +310,37 @@
       });
     }
 
+    function promptScheduleTitle(){
+      return new Promise(resolve=>{
+        const ov = document.getElementById('titlePromptOverlay');
+        const input = document.getElementById('scheduleTitle');
+        input.value = ''; // Clear previous value
+        ov.style.display='flex';
+        setTimeout(() => input.focus(), 100);
+        const close = () => { ov.style.display='none'; };
+        document.getElementById('titleCancel').onclick = ()=>{ close(); resolve(null); };
+        document.getElementById('titleConfirm').onclick = ()=>{
+          const title = input.value.trim();
+          if (!title) {
+            alert('Please enter a schedule title');
+            return;
+          }
+          close(); 
+          resolve(title);
+        };
+        // Allow Enter key to confirm
+        input.onkeydown = (e) => {
+          if (e.key === 'Enter') {
+            document.getElementById('titleConfirm').click();
+          }
+        };
+      });
+    }
+
     document.getElementById('btnGenerate').onclick = async ()=>{
       console.log('🎯 Generate button clicked');
       output.innerHTML='';
+      editModeSection.style.display='none';
       if (!isAdmin) { 
         console.warn('❌ User is not admin');
         output.innerHTML = '<div class="card">Only admins can generate schedules.</div>'; 
@@ -308,6 +371,15 @@
         output.innerHTML = '<div class="card">Fix availability issues before generating (see verification above).</div>'; 
         return; 
       }
+      
+      // Prompt for schedule title
+      const scheduleTitle = await promptScheduleTitle();
+      if (!scheduleTitle) {
+        console.log('🚫 User cancelled title input');
+        return;
+      }
+      console.log('📝 Schedule title:', scheduleTitle);
+      
       const opts = await openOptionsModal(); 
       if (!opts) {
         console.log('🚫 User cancelled options modal');
@@ -318,11 +390,22 @@
       status.textContent = 'Generating…';
       try {
         console.log('🔄 Calling generateScheduleFromWorkers...');
-        const doc = await generateScheduleFromWorkers(db, chosen, { workplaceId: selectedWP, maxWorkersPerShift, maxHoursPerWorker, shiftSizes });
+        // Generate but DON'T save yet
+        const doc = await generateScheduleInMemory(db, chosen, { workplaceId: selectedWP, maxWorkersPerShift, maxHoursPerWorker, shiftSizes, scheduleTitle });
         console.log('✅ Schedule generated successfully:', doc);
+        
+        // Store pending schedule
+        pendingSchedule = doc;
+        
+        // Show in edit mode
+        editContent.innerHTML = '';
+        editContent.appendChild(renderSchedule(doc));
+        editModeSection.style.display='block';
+        
+        status.textContent = 'Schedule ready for review';
         output.innerHTML = '';
-        output.appendChild(h('div',{class:'card'}, [h('h3',{},'Schedule Created (Current)'), renderSchedule(doc)]));
-        status.textContent = 'Done';
+        // Scroll to edit section
+        editModeSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (e) {
         console.error('❌ Error generating schedule:', e);
         output.innerHTML = '';
@@ -337,6 +420,51 @@
       }
     };
     console.log('✅ Generate button onclick handler registered');
+
+    // Save Schedule button handler
+    btnSaveSchedule.onclick = async ()=>{
+      console.log('💾 Save button clicked');
+      if (!pendingSchedule) {
+        alert('No schedule to save');
+        return;
+      }
+      try {
+        status.textContent = 'Saving schedule...';
+        await saveScheduleToDatabase(db, pendingSchedule);
+        status.textContent = 'Schedule saved successfully!';
+        
+        // Show success message
+        output.innerHTML = '';
+        const successCard = h('div', {class:'card'}, [
+          h('h3', {}, '✅ Schedule Saved Successfully'),
+          h('p', {}, `Title: ${pendingSchedule.title}`),
+          h('p', {}, `Created: ${pendingSchedule.createdAtFormatted}`),
+          renderSchedule(pendingSchedule)
+        ]);
+        output.appendChild(successCard);
+        
+        // Hide edit mode
+        editModeSection.style.display = 'none';
+        pendingSchedule = null;
+        
+        // Scroll to output
+        output.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (e) {
+        console.error('❌ Error saving schedule:', e);
+        alert('Error saving schedule: ' + (e.message || e));
+        status.textContent = 'Error saving schedule';
+      }
+    };
+
+    // Cancel Edit button handler
+    btnCancelEdit.onclick = ()=>{
+      console.log('🚫 Cancel edit clicked');
+      if (confirm('Are you sure you want to discard this schedule?')) {
+        editModeSection.style.display = 'none';
+        pendingSchedule = null;
+        status.textContent = 'Schedule discarded';
+      }
+    };
 
     document.getElementById('btnViewCurrent').onclick = async ()=>{
       output.innerHTML='';

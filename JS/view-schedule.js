@@ -13,6 +13,28 @@ export function renderSchedule(data) {
 	const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 	const wrapper = document.createElement('div');
 	
+	// Show title and timestamp if available
+	if (data.title || data.createdAtFormatted || data.createdAt) {
+		const headerDiv = document.createElement('div');
+		headerDiv.style.cssText = 'margin-bottom:1.5rem; padding:1rem; background:#1e293b; border-radius:8px; border-left:4px solid #60a5fa;';
+		
+		if (data.title) {
+			const titleEl = document.createElement('h2');
+			titleEl.textContent = data.title;
+			titleEl.style.cssText = 'margin:0 0 0.5rem 0; color:#60a5fa; font-size:1.5rem;';
+			headerDiv.appendChild(titleEl);
+		}
+		
+		if (data.createdAtFormatted || data.createdAt) {
+			const timeEl = document.createElement('div');
+			timeEl.textContent = '📅 ' + (data.createdAtFormatted || new Date(data.createdAt).toLocaleString());
+			timeEl.style.cssText = 'color:#94a3b8; font-size:0.9rem;';
+			headerDiv.appendChild(timeEl);
+		}
+		
+		wrapper.appendChild(headerDiv);
+	}
+	
 	// Create view toggle buttons
 	const toggleBar = document.createElement('div');
 	toggleBar.style.cssText = 'display:flex; gap:0.5rem; margin-bottom:1rem;';

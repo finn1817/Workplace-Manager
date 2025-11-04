@@ -97,8 +97,47 @@ export async function generateSchedule(db, { workplaceId }) {
 }
 
 // New: allow caller to provide selected workers subset
-export async function generateScheduleFromWorkers(db, workers, { workplaceId, maxWorkersPerShift=2, maxHoursPerWorker=20, shiftSizes=[5,4,3,2] }={}) {
-	console.log('🚀 generateScheduleFromWorkers called with:', { workplaceId, maxWorkersPerShift, maxHoursPerWorker, shiftSizes, workerCount: workers.length });
+export async function generateScheduleFromWorkers(db, workers, { workplaceId, maxWorkersPerShift=2, maxHoursPerWorker=20, shiftSizes=[5,4,3,2], scheduleTitle='Untitled Schedule' }={}) {
+	const scheduleDoc = await buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerShift, maxHoursPerWorker, shiftSizes, scheduleTitle });
+	
+	// Upsert current schedule
+	console.log('� Schedule document created:', scheduleDoc);
+	const existing = await getDocs(query(collection(db, 'schedules'), where('isCurrent','==',true)));
+	console.log('📋 Existing schedules found:', existing.size);
+	if (!existing.empty) {
+		console.log('✏️ Updating existing schedule:', existing.docs[0].id);
+		await updateDoc(existing.docs[0].ref, scheduleDoc);
+	} else {
+		console.log('➕ Adding new schedule');
+		await addDoc(collection(db, 'schedules'), scheduleDoc);
+	}
+	console.log('✅ Schedule saved successfully');
+	return scheduleDoc;
+}
+
+// New: generate schedule without saving to database
+export async function generateScheduleInMemory(db, workers, { workplaceId, maxWorkersPerShift=2, maxHoursPerWorker=20, shiftSizes=[5,4,3,2], scheduleTitle='Untitled Schedule' }={}) {
+	return await buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerShift, maxHoursPerWorker, shiftSizes, scheduleTitle });
+}
+
+// New: save a schedule document to database
+export async function saveScheduleToDatabase(db, scheduleDoc) {
+	console.log('💾 Saving schedule to database:', scheduleDoc);
+	const existing = await getDocs(query(collection(db, 'schedules'), where('isCurrent','==',true)));
+	if (!existing.empty) {
+		console.log('✏️ Updating existing schedule:', existing.docs[0].id);
+		await updateDoc(existing.docs[0].ref, scheduleDoc);
+	} else {
+		console.log('➕ Adding new schedule');
+		await addDoc(collection(db, 'schedules'), scheduleDoc);
+	}
+	console.log('✅ Schedule saved successfully');
+	return scheduleDoc;
+}
+
+// Core schedule building logic (doesn't save to DB)
+async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerShift=2, maxHoursPerWorker=20, shiftSizes=[5,4,3,2], scheduleTitle='Untitled Schedule' }={}) {
+	console.log('🚀 buildScheduleDocument called with:', { workplaceId, maxWorkersPerShift, maxHoursPerWorker, shiftSizes, scheduleTitle, workerCount: workers.length });
 	const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
 	const hours = await loadHoursOfOperation(db);
@@ -255,22 +294,29 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId, ma
 	const targetPerRegular = regular.length>0 ? remainingTarget/regular.length : 0;
 	for (const w of regular) tryAssign(w, targetPerRegular);
 
-	// Upsert current schedule
-	const scheduleDoc = { isCurrent:true, createdAt:new Date().toISOString(), workplace:workplaceId, schedule: {}, options:{ maxWorkersPerShift, maxHoursPerWorker, shiftSizes } };
+	// Build schedule document with title and timestamps
+	const now = new Date();
+	const scheduleDoc = { 
+		isCurrent: true, 
+		title: scheduleTitle,
+		createdAt: now.toISOString(),
+		createdAtTimestamp: now.getTime(),
+		createdAtFormatted: now.toLocaleString('en-US', { 
+			weekday: 'short', 
+			year: 'numeric', 
+			month: 'short', 
+			day: 'numeric', 
+			hour: '2-digit', 
+			minute: '2-digit' 
+		}),
+		workplace: workplaceId, 
+		schedule: {}, 
+		options: { maxWorkersPerShift, maxHoursPerWorker, shiftSizes } 
+	};
 	for (const d of DAYS) scheduleDoc.schedule[d] = windows[d].map(s => ({ start:s.start, end:s.end, assigned:s.assigned }));
-	console.log('📊 Schedule document created:', scheduleDoc);
-	const existing = await getDocs(query(collection(db, 'schedules'), where('isCurrent','==',true)));
-	console.log('📋 Existing schedules found:', existing.size);
-	if (!existing.empty) {
-		console.log('✏️ Updating existing schedule:', existing.docs[0].id);
-		await updateDoc(existing.docs[0].ref, scheduleDoc);
-	} else {
-		console.log('➕ Adding new schedule');
-		await addDoc(collection(db, 'schedules'), scheduleDoc);
-	}
-	console.log('✅ Schedule saved successfully');
+	
 	return scheduleDoc;
 }
 
-export default { generateSchedule, generateScheduleFromWorkers, loadHoursOfOperation };
+export default { generateSchedule, generateScheduleFromWorkers, generateScheduleInMemory, saveScheduleToDatabase, loadHoursOfOperation };
 
