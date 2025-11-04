@@ -12,17 +12,18 @@ export function renderWorkers(workers, { onEdit, onDelete } = {}) {
 	const table = document.createElement('table');
 	const thead = document.createElement('thead');
 	thead.innerHTML = `<tr>
-		<th>First</th><th>Last</th><th>Email</th><th>Type</th><th>Availability</th><th>Actions</th>
+		<th>First</th><th>Last</th><th>Email</th><th>Work Study</th><th>Availability</th><th>Actions</th>
 	</tr>`;
 	table.appendChild(thead);
 	const tbody = document.createElement('tbody');
 	workers.forEach(w => {
 		const tr = document.createElement('tr');
+		const ws = (w.workStudy===true || String(w['Work Study']).toLowerCase()==='yes');
 		tr.innerHTML = `
 			<td>${w['First Name']||''}</td>
 			<td>${w['Last Name']||''}</td>
 			<td>${w['Email']||''}</td>
-			<td>${w['Worker Type']||''}</td>
+			<td>${ws ? 'Yes' : 'No'}</td>
 			<td>${w['Availability']||''}</td>
 			<td></td>`;
 		const actions = document.createElement('div');
@@ -44,9 +45,10 @@ async function promptEditWorker(w) {
 	const firstName = prompt('First Name', w['First Name']||''); if (firstName===null) return null;
 	const lastName = prompt('Last Name', w['Last Name']||''); if (lastName===null) return null;
 	const email = prompt('Email', w['Email']||''); if (email===null) return null;
-	const type = prompt('Worker Type (Work Study/Regular/Cover)', w['Worker Type']||'Regular'); if (type===null) return null;
+	const wsInput = prompt('Work Study? (Yes/No)', (w.workStudy===true || String(w['Work Study']).toLowerCase()==='yes') ? 'Yes' : 'No'); if (wsInput===null) return null;
+	const workStudy = /^y(es)?$/i.test(wsInput.trim());
 	const availability = prompt('Availability (e.g., Mon 10am-2pm, Tue 1pm-5pm)', w['Availability']||''); if (availability===null) return null;
-	return { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability };
+	return { 'First Name': firstName, 'Last Name': lastName, 'Email': email, workStudy, 'Availability': availability };
 }
 
 export default { loadWorkers, renderWorkers };

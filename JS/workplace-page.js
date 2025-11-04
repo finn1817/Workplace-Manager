@@ -107,9 +107,10 @@ export async function bootstrap({ workplaceId }) {
 		const firstName = prompt('First Name'); if (!firstName) return;
 		const lastName = prompt('Last Name'); if (!lastName) return;
 		const email = prompt('Email'); if (!email) return;
-		const type = prompt('Worker Type (Work Study/Regular/Cover)', 'Regular');
+		const wsInput = prompt('Work Study? (Yes/No)', 'No') || 'No';
+		const workStudy = /^y(es)?$/i.test(wsInput.trim());
 		const availability = prompt('Availability (e.g., Mon 10am-2pm, Tue 1pm-5pm)') || '';
-		await addWorker(db, { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability });
+		await addWorker(db, { 'First Name': firstName, 'Last Name': lastName, 'Email': email, workStudy, 'Availability': availability });
 		await showWorkers();
 	};
 

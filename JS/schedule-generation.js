@@ -62,10 +62,15 @@ function isAvailable(worker, day, startMin, endMin) {
 }
 
 export async function generateSchedule(db, { workplaceId }) {
+	const workers = await loadWorkers(db);
+	return generateScheduleFromWorkers(db, workers, { workplaceId });
+}
+
+// New: allow caller to provide selected workers subset
+export async function generateScheduleFromWorkers(db, workers, { workplaceId }) {
 	const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
 	const hours = await loadHoursOfOperation(db);
-	const workers = await loadWorkers(db);
 
 	// Normalize availability
 	workers.forEach(w => {
@@ -87,22 +92,24 @@ export async function generateSchedule(db, { workplaceId }) {
 		windows[d] = slots;
 	});
 
-	// Segregate workers
-	const workStudy = workers.filter(w => (w['Worker Type']==='Work Study' || w['Work Study']==='Yes') && w['Worker Type'] !== 'Cover');
-	const regular = workers.filter(w => !(w['Worker Type']==='Work Study' || w['Work Study']==='Yes') && w['Worker Type'] !== 'Cover');
+	// Segregate workers (Cover concept removed; rely on workStudy boolean only)
+	const isWS = w => (w.workStudy === true || String(w['Work Study']).toLowerCase() === 'yes');
+	const pool = workers; // include everyone; admin selects who to include on scheduler page
+	const workStudy = pool.filter(isWS);
+	const regular = pool.filter(w => !isWS(w));
 
 	const keyFor = w => w['Email'] || w.email || w.id;
 	const displayName = w => `${w['First Name']||w.first_name||''} ${w['Last Name']||w.last_name||''}`.trim() || keyFor(w);
-	const assignedHours = Object.fromEntries(workers.map(w => [keyFor(w), 0]));
+	const assignedHours = Object.fromEntries(pool.map(w => [keyFor(w), 0]));
 
 	function tryAssign(worker, neededHours) {
 		let remaining = neededHours;
 		for (const d of DAYS) {
 			for (const slot of windows[d]) {
-				if (slot.assigned.length >= 2) continue;
+				if (slot.assigned.length >= 2) continue; // capacity
 				if (!isAvailable(worker, d, slot.start, slot.end)) continue;
 				const key = keyFor(worker);
-				slot.assigned.push({ email:key, name:displayName(worker), ws:(worker['Worker Type']==='Work Study'||worker['Work Study']==='Yes') });
+				slot.assigned.push({ email:key, name:displayName(worker), ws:isWS(worker) });
 				assignedHours[key] += (slot.end-slot.start)/60;
 				remaining -= (slot.end-slot.start)/60;
 				if (remaining <= 0) return true;
@@ -132,5 +139,5 @@ export async function generateSchedule(db, { workplaceId }) {
 	return scheduleDoc;
 }
 
-export default { generateSchedule, loadHoursOfOperation };
+export default { generateSchedule, generateScheduleFromWorkers, loadHoursOfOperation };
 

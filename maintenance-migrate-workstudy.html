@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maintenance: Migrate Work Study Field</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin:0; background:#0b0b0b; color:#e5e7eb; }
+    header { background: var(--banner-blue, #0033A0); color:#fff; padding:1rem 1.5rem; display:flex; align-items:center; justify-content:space-between; }
+    .container { max-width: 900px; margin: 0 auto; padding: 1rem; }
+    .card { background: #0f172a; border:1px solid #1f2937; border-radius:12px; padding:1rem; }
+    .btn { padding:.6rem 1rem; border-radius:10px; border:2px solid #000; background:#60a5fa; color:#000; font-weight:600; cursor:pointer; }
+    .btn:hover { filter: brightness(.95); }
+    select { padding:.5rem; border-radius:8px; border:1px solid #475569; background:#0b0b0b; color:#e5e7eb; }
+    .rows { max-height: 320px; overflow:auto; margin-top:.75rem; background:#0b0b0b; border:1px solid #1f2937; border-radius:8px; padding:.5rem; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:.9rem; }
+    .pill { background:#e5e7eb; color:#111; border-radius:9999px; padding:.15rem .45rem; font-size:.8rem; }
+  </style>
+  <link rel="stylesheet" href="./theme/theme-toggle-per-user.css" />
+</head>
+<body>
+  <script type="module" src="./theme/theme-toggle-per-user.js"></script>
+  <header>
+    <h1 style="margin:0;font-size:1.1rem;">🛠️ Migrate Work Study (Legacy → Boolean)</h1>
+    <a class="btn" href="dashboard.html">⬅ Back</a>
+  </header>
+
+  <div class="container">
+    <div id="status" class="pill">Loading…</div>
+
+    <div class="card" style="margin-top:1rem;">
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+        <label for="wp">Workplace:</label>
+        <select id="wp">
+          <option value="esports_lounge" selected>esports_lounge</option>
+          <option value="esports_arena">esports_arena</option>
+          <option value="it_service_center">it_service_center</option>
+        </select>
+        <button id="btnScan" class="btn">🔍 Dry Run (Analyze)</button>
+        <button id="btnMigrate" class="btn">🚚 Run Migration</button>
+      </div>
+      <div id="summary" style="margin-top:.75rem;"></div>
+      <div id="details" class="rows mono"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import './firebase/config.js';
+    import { getDBForWorkplace } from './firebase/config.js';
+    import { guardAdminOrRedirect } from './JS/admin-status.js';
+    import { getFirestore, collection, getDocs, updateDoc, doc, deleteField } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+
+    const status = document.getElementById('status');
+    const wpSel = document.getElementById('wp');
+    const summary = document.getElementById('summary');
+    const details = document.getElementById('details');
+
+    function detectWS(data) {
+      const wsBool = data.workStudy === true;
+      const wsLegacy = String(data['Work Study']||'').toLowerCase() === 'yes';
+      const wsType = String(data['Worker Type']||'').toLowerCase() === 'work study';
+      return wsBool || wsLegacy || wsType;
+    }
+
+    function describeChange(data) {
+      const haveBool = Object.prototype.hasOwnProperty.call(data, 'workStudy');
+      const haveLegacy = Object.prototype.hasOwnProperty.call(data, 'Work Study');
+      const haveType = Object.prototype.hasOwnProperty.call(data, 'Worker Type');
+      const target = detectWS(data);
+      const actions = [];
+      if (!haveBool || data.workStudy !== target) actions.push(`set workStudy=${target}`);
+      if (haveLegacy) actions.push('remove "Work Study"');
+      if (haveType) actions.push('remove "Worker Type"');
+      return { target, actions };
+    }
+
+    async function scan(db) {
+      const snap = await getDocs(collection(db, 'workers'));
+      const rows = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+      let setCount = 0, rmLegacy = 0, rmType = 0;
+      const lines = [];
+      rows.forEach(w=>{
+        const { target, actions } = describeChange(w);
+        if (actions.length) {
+          if (actions.some(a=>a.startsWith('set workStudy'))) setCount++;
+          if (Object.prototype.hasOwnProperty.call(w,'Work Study')) rmLegacy++;
+          if (Object.prototype.hasOwnProperty.call(w,'Worker Type')) rmType++;
+          lines.push(`${w['Email']||w.email||w.id}: ${actions.join(', ')}`);
+        }
+      });
+      return { total: rows.length, setCount, rmLegacy, rmType, lines };
+    }
+
+    async function migrate(db) {
+      const snap = await getDocs(collection(db, 'workers'));
+      let updated = 0; let skipped = 0;
+      for (const d of snap.docs) {
+        const w = d.data();
+        const target = detectWS(w);
+        const patch = {};
+        if (w.workStudy !== target) patch.workStudy = target;
+        if (Object.prototype.hasOwnProperty.call(w,'Work Study')) patch['Work Study'] = deleteField();
+        if (Object.prototype.hasOwnProperty.call(w,'Worker Type')) patch['Worker Type'] = deleteField();
+        if (Object.keys(patch).length) { await updateDoc(d.ref, patch); updated++; } else { skipped++; }
+      }
+      return { updated, skipped };
+    }
+
+    document.getElementById('btnScan').onclick = async ()=>{
+      status.textContent = 'Analyzing…'; details.textContent=''; summary.textContent='';
+      const db = getDBForWorkplace(wpSel.value);
+      const res = await scan(db);
+      summary.textContent = `Workers: ${res.total} • will set workStudy on ${res.setCount}, remove "Work Study" on ${res.rmLegacy}, remove "Worker Type" on ${res.rmType}`;
+      details.textContent = res.lines.join('\n') || '(no changes needed)';
+      status.textContent = 'Ready';
+    };
+
+    document.getElementById('btnMigrate').onclick = async ()=>{
+      if (!confirm('Run migration? This will set workStudy and remove legacy fields on all workers in the selected workplace.')) return;
+      status.textContent = 'Migrating…';
+      const db = getDBForWorkplace(wpSel.value);
+      const res = await migrate(db);
+      summary.textContent = `Updated ${res.updated} documents; ${res.skipped} unchanged.`;
+      status.textContent = 'Done';
+    };
+
+    (async()=>{ if (await guardAdminOrRedirect()) { status.textContent='Ready'; } })();
+  </script>
+</body>
+</html>

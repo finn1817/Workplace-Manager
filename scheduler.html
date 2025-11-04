@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Schedule Builder (Admin)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin:0; background:#0b0b0b; color:#e5e7eb; }
+    header { background: var(--banner-blue,#0033A0); color:#fff; padding:1rem 1.5rem; display:flex; align-items:center; justify-content:space-between; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1.25rem; }
+    .section { margin-bottom: 1.25rem; }
+    .card { background: var(--banner-blue,#0033A0); border: 1px solid rgba(0,0,0,.25); border-radius: 12px; padding: 1rem; }
+    .card h3 { margin:.25rem 0 1rem 0; }
+    .btn { padding:.7rem 1.1rem; border-radius:10px; border:2px solid #000; background:#60a5fa; color:#000; font-weight:600; cursor:pointer; }
+    .btn:hover { filter:brightness(.95); }
+    .btn-danger { background:#ef4444; color:#fff; border-color:#111; }
+    .actions { display:flex; gap:.6rem; flex-wrap:wrap; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:.6rem; }
+    .tile { background: var(--banner-blue,#0033A0); color:#fff; padding: 1rem; border-radius:12px; cursor:pointer; border:1px solid rgba(0,0,0,.25); text-align:center; }
+    .tile.selected { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
+    table { width:100%; border-collapse:collapse; background:#0b0b0b; }
+    th, td { padding:.5rem .75rem; border-bottom:1px solid #1f2937; text-align:left; }
+    .pill { background:#e5e7eb; color:#111; border-radius:9999px; padding:.15rem .45rem; font-size:.8rem; }
+    .note { color:#cbd5e1; font-size:.9rem; }
+  </style>
+  <link rel="stylesheet" href="./theme/theme-toggle-per-user.css" />
+</head>
+<body>
+  <script type="module" src="./theme/theme-toggle-per-user.js"></script>
+  <header>
+    <h1 style="margin:0;font-size:1.15rem;">🗓️ Schedule Builder</h1>
+    <div class="actions">
+      <a class="btn" href="dashboard.html">⬅ Back</a>
+    </div>
+  </header>
+  <div class="container">
+    <div id="status" class="pill">Loading…</div>
+
+    <div class="section card">
+      <h3>1) Choose Workplace</h3>
+      <div class="grid" id="wpGrid">
+        <div class="tile" data-wp="esports_lounge">🎮 eSports Lounge<br><small>esports_lounge</small></div>
+        <div class="tile" data-wp="esports_arena">🏟️ eSports Arena<br><small>esports_arena</small></div>
+        <div class="tile" data-wp="it_service_center">💻 IT Service Center<br><small>it_service_center</small></div>
+      </div>
+    </div>
+
+    <div id="stepWorkers" class="section card" style="display:none;">
+      <h3>2) Select Workers to Include</h3>
+      <div class="note">Cover workers are excluded from auto-generation, but you can include them for later manual assignment.</div>
+      <div class="actions" style="margin:.5rem 0;">
+        <button class="btn" id="selectAllWS">Select All Work Study</button>
+        <button class="btn" id="selectAllReg">Select All Regular</button>
+        <button class="btn" id="clearAll">Clear All</button>
+      </div>
+      <div id="workersTable"></div>
+    </div>
+
+    <div id="stepActions" class="section actions" style="display:none;">
+      <button id="btnGenerate" class="btn">📅 Generate Schedule</button>
+      <button id="btnViewCurrent" class="btn">👁️ View Current Schedule</button>
+    </div>
+
+    <div id="output" class="section"></div>
+  </div>
+
+  <script type="module">
+    import './firebase/config.js';
+    import { getDBForWorkplace } from './firebase/config.js';
+    import { guardAdminOrRedirect, isAdminUser } from './JS/admin-status.js';
+    import { collection, getDocs, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+    import { generateScheduleFromWorkers, loadHoursOfOperation } from './JS/schedule-generation.js';
+    import { loadCurrentSchedule, renderSchedule } from './JS/view-schedule.js';
+
+    const status = document.getElementById('status');
+    const wpGrid = document.getElementById('wpGrid');
+    const stepWorkers = document.getElementById('stepWorkers');
+    const stepActions = document.getElementById('stepActions');
+    const output = document.getElementById('output');
+    const workersTableDiv = document.getElementById('workersTable');
+
+    let selectedWP = null; let db = null; let isAdmin = false;
+    let allWorkers = [];
+
+    function h(tag, attrs={}, children=[]) { const e=document.createElement(tag); Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); }); (Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c)); return e; }
+
+    function renderWorkersPicklist(workers) {
+      const table = h('table');
+      const thead = h('thead');
+  thead.append(h('tr',{},[h('th',{},''), h('th',{},'First'), h('th',{},'Last'), h('th',{},'Email'), h('th',{},'Work Study'), h('th',{},'Availability')]));
+      const tbody = h('tbody');
+      workers.forEach(w=>{
+        const row = h('tr');
+        const cb = h('input',{type:'checkbox', 'data-email': w['Email']||w.email});
+        // Default: include all; show WS as Yes/No
+        const ws = (w.workStudy===true || String(w['Work Study']).toLowerCase()==='yes');
+        cb.checked = true;
+        row.append(
+          h('td',{},cb),
+          h('td',{}, w['First Name']||''),
+          h('td',{}, w['Last Name']||''),
+          h('td',{}, w['Email']||w.email||''),
+          h('td',{}, ws ? 'Yes' : 'No'),
+          h('td',{}, w['Availability']||'')
+        );
+        tbody.append(row);
+      });
+      table.append(thead, tbody);
+      workersTableDiv.innerHTML=''; workersTableDiv.append(table);
+    }
+
+    function getSelectedWorkers() {
+      const emails = Array.from(workersTableDiv.querySelectorAll('input[type="checkbox"]:checked')).map(i=>i.getAttribute('data-email'));
+      return allWorkers.filter(w => emails.includes(w['Email']||w.email));
+    }
+
+    async function loadWorkers() {
+      status.textContent = 'Loading workers…';
+      const snap = await getDocs(collection(db, 'workers'));
+      allWorkers = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+      renderWorkersPicklist(allWorkers);
+      status.textContent = `Loaded ${allWorkers.length} workers`;
+      stepWorkers.style.display='block'; stepActions.style.display='flex';
+    }
+
+    wpGrid.addEventListener('click', async (e)=>{
+      const tile = e.target.closest('.tile'); if (!tile) return;
+      wpGrid.querySelectorAll('.tile').forEach(t=>t.classList.remove('selected'));
+      tile.classList.add('selected');
+      selectedWP = tile.getAttribute('data-wp');
+      db = getDBForWorkplace(selectedWP);
+      output.innerHTML='';
+      await loadWorkers();
+    });
+
+    document.getElementById('selectAllWS').onclick = ()=>{
+      workersTableDiv.querySelectorAll('tbody tr').forEach(tr=>{
+        const wsText = tr.children[4]?.textContent?.toLowerCase()||'';
+        const cb = tr.querySelector('input[type="checkbox"]');
+        if (wsText.includes('yes')) cb.checked = true; else cb.checked = false;
+      });
+    };
+    document.getElementById('selectAllReg').onclick = ()=>{
+      workersTableDiv.querySelectorAll('tbody tr').forEach(tr=>{
+        const wsText = tr.children[4]?.textContent?.toLowerCase()||'';
+        const cb = tr.querySelector('input[type="checkbox"]');
+        if (wsText.includes('yes')) cb.checked = false; else cb.checked = true;
+      });
+    };
+    document.getElementById('clearAll').onclick = ()=>{
+      workersTableDiv.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=false);
+    };
+
+    document.getElementById('btnGenerate').onclick = async ()=>{
+      output.innerHTML='';
+      if (!isAdmin) { output.innerHTML = '<div class="card">Only admins can generate schedules.</div>'; return; }
+      if (!db || !selectedWP) { output.innerHTML = '<div class="card">Select a workplace first.</div>'; return; }
+      const chosen = getSelectedWorkers();
+      if (!chosen.length) { output.innerHTML = '<div class="card">Select at least one worker.</div>'; return; }
+      status.textContent = 'Generating…';
+      try {
+        const doc = await generateScheduleFromWorkers(db, chosen, { workplaceId: selectedWP });
+        output.innerHTML = '';
+        output.appendChild(h('div',{class:'card'}, [h('h3',{},'Schedule Created (Current)'), renderSchedule(doc)]));
+        status.textContent = 'Done';
+      } catch (e) {
+        output.innerHTML = `<div class="card">${e.message||e}</div>`;
+        status.textContent = 'Error';
+      }
+    };
+
+    document.getElementById('btnViewCurrent').onclick = async ()=>{
+      output.innerHTML='';
+      if (!db) { output.innerHTML = '<div class="card">Select a workplace first.</div>'; return; }
+      const data = await loadCurrentSchedule(db);
+      if (!data) { output.innerHTML = '<div class="card">No current schedule found.</div>'; return; }
+      output.appendChild(h('div',{class:'card'}, [h('h3',{},'Current Schedule'), renderSchedule(data)]));
+    };
+
+    (async ()=>{
+      if (await guardAdminOrRedirect()) {
+        try { const u = JSON.parse(localStorage.getItem('user')||'{}'); isAdmin = u?.email ? await isAdminUser(u.email) : false; } catch {}
+        // Non-admins can view current schedule but cannot generate
+        if (!isAdmin) { document.getElementById('btnGenerate').style.display='none'; }
+        status.textContent = 'Ready';
+      }
+    })();
+  </script>
+</body>
+</html>
