@@ -230,7 +230,8 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 	}
 
 	function tryAssign(worker, neededHours) {
-		let remaining = neededHours;
+		// Work in whole hours; avoid creating single-hour blocks
+		let remaining = Math.max(0, Math.floor(neededHours + 0.0001));
 		const key = keyFor(worker);
 		for (const d of DAYS) {
 			const slots = windows[d];
@@ -240,7 +241,8 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 				// Try preferred shift sizes (5,4,3,2) without exceeding remaining or hoursLeft
 				for (const size of shiftSizes) {
 					const take = Math.min(size, remaining, hoursLeft);
-					if (take < 1) continue;
+					// Skip single-hour placements entirely
+					if (take < 2) continue;
 					if (canPlaceBlock(d, idx, take, worker)) {
 						placeBlock(d, idx, take, worker);
 						remaining -= take;
@@ -272,7 +274,7 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 
 	for (const w of workStudy) {
 		const { total:availHrs, perDay, maxBlock } = computeAvailableHoursWithinOpen(w);
-		if (maxBlock < 5) {
+		if (availHrs < 5) {
 			// Build a concise debug string: open windows by day and matched hours
 			const details = DAYS.map(d=>{
 				const o = hours[d];
@@ -281,7 +283,7 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 				const matched = perDay[d]||0;
 				return `${d}: ${openStr} • match ${matched}h`;
 			}).join(' \n ');
-			throw new Error(`Work Study availability issue for ${displayName(w)} — needs a contiguous 5h block within operating hours (max block ${maxBlock}h; total ${availHrs}h).\n\nOpen hours & matches:\n ${details}`);
+			throw new Error(`Work Study availability issue for ${displayName(w)} — needs ≥5 total hours within operating hours (total ${availHrs}h).\n\nOpen hours & matches:\n ${details}`);
 		}
 		const ok = tryAssign(w, 5);
 		if (!ok) throw new Error(`Work Study availability issue for ${displayName(w)} — they must have at least 5 hours within operating hours.`);
@@ -291,8 +293,10 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 	const totalSlots = Object.values(windows).flat().length * maxWorkersPerShift;
 	const wsHours = workStudy.length * 5;
 	const remainingTarget = Math.max(0, totalSlots - wsHours);
+	// Round target to an even number to avoid single-hour assignments for regulars
 	const targetPerRegular = regular.length>0 ? remainingTarget/regular.length : 0;
-	for (const w of regular) tryAssign(w, targetPerRegular);
+	const targetPerRegularEven = Math.max(0, Math.floor(targetPerRegular/2) * 2);
+	for (const w of regular) tryAssign(w, targetPerRegularEven);
 
 	// Build schedule document with title and timestamps
 	const now = new Date();

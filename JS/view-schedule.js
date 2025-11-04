@@ -112,38 +112,71 @@ function buildTextView(schedule) {
 	const view = document.createElement('div');
 
 	DAYS.forEach(day => {
-		const shifts = schedule[day] || [];
-		if (shifts.length === 0) return;
+		const slots = (schedule[day] || []).slice().sort((a,b)=>a.start-b.start);
+		if (slots.length === 0) return;
 
 		const dayHeader = document.createElement('h3');
 		dayHeader.textContent = day;
 		dayHeader.style.cssText = 'margin: 1.5rem 0 0.75rem 0; color: #60a5fa; font-size: 1.25rem; border-bottom: 2px solid #1e293b; padding-bottom: 0.5rem;';
 		view.appendChild(dayHeader);
 
-		const sortedShifts = [...shifts].sort((a, b) => a.start - b.start);
+		// Merge adjacent hour slots into contiguous segments per worker
+		const segments = [];
+		let active = new Map(); // key -> {start, end, worker, unfilled}
 
-		sortedShifts.forEach(shift => {
+		for (const s of slots) {
+			// Build current map of workers for this slot (or an UNFILLED token)
+			const current = new Map();
+			const assignedList = (s.assigned && s.assigned.length > 0) ? s.assigned : [{ name:'Unfilled', email:'__UNFILLED__', unfilled:true }];
+
+			assignedList.forEach(a => {
+				const key = a.email || a.name || (a.unfilled ? '__UNFILLED__' : 'unknown');
+				if (active.has(key)) {
+					const seg = active.get(key);
+					seg.end = s.end; // extend
+					current.set(key, seg);
+				} else {
+					const seg = { start: s.start, end: s.end, worker: a, unfilled: !!a.unfilled };
+					current.set(key, seg);
+				}
+			});
+
+			// Close any segments that are no longer active this hour
+			for (const [k, seg] of active.entries()) {
+				if (!current.has(k)) segments.push(seg);
+			}
+
+			active = current;
+		}
+
+		// Close remaining open segments at end of day
+		for (const [, seg] of active.entries()) segments.push(seg);
+
+		// Sort segments chronologically
+		segments.sort((a,b)=> a.start - b.start || (a.worker?.name||'').localeCompare(b.worker?.name||''));
+
+		// Render merged segments
+		segments.forEach(seg => {
 			const item = document.createElement('div');
 			item.style.cssText = 'background: #1e293b; padding: 0.75rem 1rem; border-radius: 6px; border-left: 3px solid #475569; margin-bottom: 0.5rem;';
 
 			const timeSpan = document.createElement('strong');
-			timeSpan.textContent = `${formatTime(shift.start)} - ${formatTime(shift.end)}`;
+			timeSpan.textContent = `${formatTime(seg.start)} - ${formatTime(seg.end)}`;
 			timeSpan.style.cssText = 'color: #e5e7eb; font-size: 1rem;';
 
 			const workerList = document.createElement('div');
 			workerList.style.cssText = 'margin-top: 0.5rem; color: #94a3b8; font-size: 0.9rem;';
 
-			if (!shift.assigned || shift.assigned.length === 0) {
+			if (seg.unfilled) {
 				workerList.textContent = '⚠️ Unfilled';
 				workerList.style.color = '#fbbf24';
 			} else {
-				shift.assigned.forEach(worker => {
-					const badge = document.createElement('span');
-					badge.textContent = worker.name || worker.email || 'Unknown';
-					badge.style.cssText = `display: inline-block; margin: 0.25rem 0.5rem 0.25rem 0; padding: 0.25rem 0.6rem; background: ${worker.ws ? '#065f46' : '#1e3a8a'}; color: #fff; border-radius: 4px; font-size: 0.85rem;`;
-					if (worker.ws) badge.title = 'Work Study';
-					workerList.appendChild(badge);
-				});
+				const worker = seg.worker || {};
+				const badge = document.createElement('span');
+				badge.textContent = worker.name || worker.email || 'Unknown';
+				badge.style.cssText = `display: inline-block; margin: 0.25rem 0.5rem 0.25rem 0; padding: 0.25rem 0.6rem; background: ${worker.ws ? '#065f46' : '#1e3a8a'}; color: #fff; border-radius: 4px; font-size: 0.85rem;`;
+				if (worker.ws) badge.title = 'Work Study';
+				workerList.appendChild(badge);
 			}
 
 			item.appendChild(timeSpan);
