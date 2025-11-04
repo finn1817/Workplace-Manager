@@ -38,39 +38,45 @@ export async function loadWorkers(db) {
 }
 
 export function parseAvailabilityString(text) {
-	// Accept both abbreviations (Sun..Sat) and full names (Sunday..Saturday)
+	// Parse format like "Mon 14:00-19:00, Tue 08:00-13:00"
 	const abbrToFull = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
-	const fullDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 	const availability = {};
 	if (!text) return availability;
-	text.split(/[;,]/).map(s => s.trim()).forEach(block => {
-		if (!block) return;
-		// Try abbreviated day first
-		let m = block.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
-		let day = null, start = null, end = null;
-		function toMinutes(h, mins, ap) {
-			let hh = parseInt(h,10);
-			let mm = mins?parseInt(mins,10):0;
-			if (ap) { const apL = ap.toLowerCase(); if (apL==='pm' && hh<12) hh+=12; if (apL==='am' && hh===12) hh=0; }
-			return hh*60+mm;
+	
+	const blocks = text.split(',').map(s => s.trim());
+	blocks.forEach(block => {
+		// Match: "Mon 14:00-19:00" or "Monday 14:00-19:00" (colon REQUIRED in HH:MM)
+		const match = block.match(/^(\w+)\s+(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$/i);
+		if (!match) return;
+		
+		const [, dayRaw, startTime, endTime] = match;
+		
+		// Normalize day name
+		const dayLower = dayRaw.toLowerCase();
+		const day = abbrToFull[dayRaw] || abbrToFull[dayRaw.slice(0,3)] || 
+		            (dayLower === 'sunday' ? 'Sunday' : dayLower === 'monday' ? 'Monday' : 
+		             dayLower === 'tuesday' ? 'Tuesday' : dayLower === 'wednesday' ? 'Wednesday' :
+		             dayLower === 'thursday' ? 'Thursday' : dayLower === 'friday' ? 'Friday' :
+		             dayLower === 'saturday' ? 'Saturday' : null);
+		
+		if (!day) return;
+		
+		// Convert HH:MM to minutes
+		function parseTime(t) {
+			const [h, m] = t.split(':').map(Number);
+			return (h * 60) + m;
 		}
-		if (m) {
-			day = abbrToFull[m[1]];
-			start = toMinutes(m[2], m[3], m[4]);
-			end   = toMinutes(m[5], m[6], m[7]);
-			if (end <= start) end = 24*60; // support ranges like 18:30-00:00
-		} else {
-			// Try full day names
-			const full = block.match(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
-			if (!full) return;
-			day = full[1].charAt(0).toUpperCase()+full[1].slice(1).toLowerCase();
-			start = toMinutes(full[2], full[3], full[4]);
-			end   = toMinutes(full[5], full[6], full[7]);
-			if (end <= start) end = 24*60;
-		}
+		
+		let start = parseTime(startTime);
+		let end = parseTime(endTime);
+		
+		// Handle cross-midnight (e.g., 18:30-00:00)
+		if (end <= start) end = 24 * 60;
+		
 		if (!availability[day]) availability[day] = [];
 		availability[day].push({ start, end });
 	});
+	
 	return availability;
 }
 
