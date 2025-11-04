@@ -237,8 +237,9 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 			for (let idx=0; idx<slots.length && remaining>0; idx++) {
 				const hoursLeft = Math.max(0, maxHoursPerWorker - (assignedHours[key]||0));
 				if (hoursLeft <= 0) return remaining <= 0;
-				// Try preferred shift sizes (5,4,3,2) without exceeding remaining or hoursLeft
-				for (const size of shiftSizes) {
+				// Try preferred shift sizes without exceeding remaining or hoursLeft; include 1h fallback for non-contiguous placement
+				const sizesToTry = Array.from(new Set([...(shiftSizes||[]), 1]));
+				for (const size of sizesToTry) {
 					const take = Math.min(size, remaining, hoursLeft);
 					if (take < 1) continue;
 					if (canPlaceBlock(d, idx, take, worker)) {
@@ -253,7 +254,7 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 		return remaining <= 0;
 	}
 
-	// Precheck: each WS must have at least 5 hours of availability within operating hours
+	// Precheck: each WS must have at least 5 total hours of availability within operating hours (no contiguity requirement)
 	function computeAvailableHoursWithinOpen(worker) {
 		let total = 0; const perDay = {}; let maxBlock = 0;
 		for (const d of DAYS) {
@@ -272,7 +273,7 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 
 	for (const w of workStudy) {
 		const { total:availHrs, perDay, maxBlock } = computeAvailableHoursWithinOpen(w);
-		if (maxBlock < 5) {
+		if (availHrs < 5) {
 			// Build a concise debug string: open windows by day and matched hours
 			const details = DAYS.map(d=>{
 				const o = hours[d];
@@ -281,10 +282,10 @@ async function buildScheduleDocument(db, workers, { workplaceId, maxWorkersPerSh
 				const matched = perDay[d]||0;
 				return `${d}: ${openStr} • match ${matched}h`;
 			}).join(' \n ');
-			throw new Error(`Work Study availability issue for ${displayName(w)} — needs a contiguous 5h block within operating hours (max block ${maxBlock}h; total ${availHrs}h).\n\nOpen hours & matches:\n ${details}`);
+			throw new Error(`Work Study availability issue for ${displayName(w)} — needs at least 5 total hours within operating hours (total ${availHrs}h).\n\nOpen hours & matches:\n ${details}`);
 		}
 		const ok = tryAssign(w, 5);
-		if (!ok) throw new Error(`Work Study availability issue for ${displayName(w)} — they must have at least 5 hours within operating hours.`);
+		if (!ok) throw new Error(`Work Study availability issue for ${displayName(w)} — unable to place 5 hours within operating hours. Consider adjusting shift sizes or availability.`);
 	}
 
 	// Fair fill for regulars

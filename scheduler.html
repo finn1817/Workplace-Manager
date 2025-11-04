@@ -58,7 +58,7 @@
 
     <div id="verifySection" class="section card" style="display:none;">
       <h3>3) Verify Availability</h3>
-      <div class="note">We’ll check each selected worker against hours of operation. Work Study must have a contiguous block ≥ 5 hours.</div>
+      <div class="note">We’ll check each selected worker against hours of operation. Work Study must have ≥ 5 total hours available during open hours.</div>
       <div class="actions" style="margin:.5rem 0;">
         <button id="btnVerify" class="btn">✅ Check availability</button>
       </div>
@@ -322,7 +322,8 @@
         let total=0; let maxBlock=0;
         for (const d of DAYS){ const slots = windows[d]; let run=0; for (const s of slots){ const good = isAvailableRanges(av[d], s.start, s.end); if(good){ total+=1; run+=1; maxBlock=Math.max(maxBlock, run); } else { run=0; } } }
         const ws = (w.workStudy===true || String(w['Work Study']).toLowerCase()==='yes');
-        const pass = ws ? (maxBlock>=5) : (total>0);
+        // New rule: WS needs ≥ 5 total hours in open hours (no contiguity requirement)
+        const pass = ws ? (total>=5) : (total>0);
         rows.push({ w, ws, total, maxBlock, pass });
         if (!pass) failures.push({ name:`${w['First Name']||''} ${w['Last Name']||''}`.trim(), ws, total, maxBlock });
         ok = ok && pass;
