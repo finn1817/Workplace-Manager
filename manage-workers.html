@@ -102,8 +102,25 @@
 						<select id="mwPinned"><option>false</option><option>true</option></select>
 					</div>
 					<div style="grid-column:1/-1;">
-						<label>Days & Times Available</label>
-						<textarea id="mwAvail" placeholder="Mon 09:00-12:00, Tue 10:00-16:00 ..."></textarea>
+						<label>Availability</label>
+						<!-- Mode toggle -->
+						<div style="display:flex;gap:.5rem;align-items:center;margin:.25rem 0 .5rem 0;flex-wrap:wrap;">
+							<span style="font-size:.85rem;color:#374151">Input mode:</span>
+							<div class="pill" id="mwModeFree" style="cursor:pointer;background:#e5e7eb;">Free text</div>
+							<div class="pill" id="mwModeEditor" style="cursor:pointer;background:#2563eb;color:#fff;">Day & time editor</div>
+							<span style="margin-left:1rem;font-size:.85rem;color:#374151">Time format:</span>
+							<div class="pill" id="mwFmt24" style="cursor:pointer;background:#2563eb;color:#fff;">24h</div>
+							<div class="pill" id="mwFmtAmPm" style="cursor:pointer;background:#e5e7eb;">AM/PM</div>
+						</div>
+
+						<!-- Free text textarea (legacy compatible) -->
+						<textarea id="mwAvail" placeholder="Mon 09:00-12:00, Tue 10:00-16:00 ..." style="display:none;"></textarea>
+
+						<!-- Structured editor -->
+						<div id="mwAvailEditor" style="border:1px solid #e5e7eb;border-radius:8px;padding:.5rem;">
+							<div id="mwDays"></div>
+							<div style="margin-top:.5rem;color:#6b7280;font-size:.85rem;">Tip: Add one or more time ranges per day. We'll store a single Availability string like "Mon 09:00-12:00, Tue 10:00-16:00".</div>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -118,7 +135,7 @@
 		import './firebase/config.js';
 		import { getDBForWorkplace, AUTH_APP } from './firebase/config.js';
 		import { guardAdminOrRedirect, isAdminUser, setAdmin } from './JS/admin-status.js';
-		import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+		import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where, deleteField } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 		import { addWorker, updateWorker, deleteWorker } from './JS/worker-CRUD.js';
 
 		// avoid top-level return (breaks with Rocket Loader); gate init via async IIFE
@@ -189,7 +206,12 @@
 				const cell = tr.querySelector('td:last-child');
 				if (allowCrud) {
 					const be = h('button', { class:'btn' }, 'Edit'); be.onclick = async ()=>{
-						const data = await promptEditWorker(r); if (!data) return; await updateWorker(getDBForWorkplace(r.__wp), r.id, data); await render(); };
+						const result = await openWorkerModal({ mode:'edit', worker:r }); if (!result) return; const { data } = result; 
+						const dbSel = getDBForWorkplace(r.__wp);
+						await updateWorker(dbSel, r.id, data);
+						// Remove legacy field if present
+						try { await updateDoc(doc(dbSel, 'workers', r.id), { 'Days & Times Available': deleteField() }); } catch(e) { /* ignore if not present */ }
+						await render(); };
 					const bd = h('button', { class:'btn btn-danger' }, 'Delete'); bd.onclick = async ()=>{ if (!confirm('Delete worker?')) return; await deleteWorker(getDBForWorkplace(r.__wp), r.id); await render(); };
 					cell.append(be, bd);
 				}
@@ -244,8 +266,123 @@
 					type: document.getElementById('mwType'),
 					ws: document.getElementById('mwWS'),
 					pinned: document.getElementById('mwPinned'),
-					avail: document.getElementById('mwAvail')
+					avail: document.getElementById('mwAvail'),
+					availEditor: document.getElementById('mwAvailEditor'),
+					daysWrap: document.getElementById('mwDays'),
+					modeFree: document.getElementById('mwModeFree'),
+					modeEditor: document.getElementById('mwModeEditor'),
+					fmt24: document.getElementById('mwFmt24'),
+					fmtAmPm: document.getElementById('mwFmtAmPm')
 				};
+
+				// local editor state
+				let mode = 'editor'; // 'editor' | 'free'
+				let timeFmt = '24h'; // '24h' | 'ampm'
+				const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+				const ABBR = { Sunday:'Sun', Monday:'Mon', Tuesday:'Tue', Wednesday:'Wed', Thursday:'Thu', Friday:'Fri', Saturday:'Sat' };
+
+				function minutes(h, m) { return h*60 + m; }
+				function to24h(h, m, ap) {
+					let hh = parseInt(h,10)||0; let mm = parseInt(m,10)||0; const apL = (ap||'').toLowerCase();
+					if (apL==='pm' && hh<12) hh+=12; if (apL==='am' && hh===12) hh=0; return minutes(hh, mm);
+				}
+				function fmtHM(mins) { const h=Math.floor(mins/60); const mm=(mins%60).toString().padStart(2,'0'); return `${h.toString().padStart(2,'0')}:${mm}`; }
+				function fmtAMPM(mins) { const h=Math.floor(mins/60); const mm=(mins%60).toString().padStart(2,'0'); const ap=h>=12?'PM':'AM'; const hh=(h%12)||12; return `${hh}:${mm} ${ap}`; }
+
+				function makeTimeInputs(defaultStart=540, defaultEnd=1020) {
+					const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.gap='.35rem'; wrap.style.alignItems='center';
+					wrap.style.margin='.25rem 0';
+					function build24(val) { const inp=document.createElement('input'); inp.type='time'; inp.step=300; inp.value=val; inp.style.padding='.3rem'; inp.style.border='1px solid #e5e7eb'; inp.style.borderRadius='6px'; return inp; }
+					function buildAP(val) {
+						const [labelH,labelM,labelAP] = (()=>{ const h=Math.floor(defaultStart/60); const m=(defaultStart%60).toString().padStart(2,'0'); return [((h%12)||12), m, h>=12?'PM':'AM']; })();
+						const makeSel=(opts)=>{ const s=document.createElement('select'); s.style.padding='.3rem'; s.style.border='1px solid #e5e7eb'; s.style.borderRadius='6px'; opts.forEach(o=>{ const opt=document.createElement('option'); opt.value=o; opt.textContent=o; s.appendChild(opt); }); return s; };
+						const sh=makeSel([...Array(12)].map((_,i)=>String(i+1))); const sm=makeSel(['00','15','30','45']); const sap=makeSel(['AM','PM']);
+						const eh=makeSel([...Array(12)].map((_,i)=>String(i+1))); const em=makeSel(['00','15','30','45']); const eap=makeSel(['AM','PM']);
+						// initialize from val strings if provided
+						const [sv='09:00', ev='17:00'] = [fmtHM(defaultStart), fmtHM(defaultEnd)];
+						function setFromHM(selH, selM, selAP, hm) { const [h,m]=hm.split(':').map(Number); selH.value=String(((h%12)||12)); selM.value=(m+'').padStart(2,'0'); selAP.value=h>=12?'PM':'AM'; }
+						setFromHM(sh, sm, sap, sv); setFromHM(eh, em, eap, ev);
+						return { sh, sm, sap, eh, em, eap, render(){ const g=document.createElement('div'); g.style.display='flex'; g.style.gap='.25rem'; g.append(sh,document.createTextNode(':'),sm,sap,document.createTextNode(' - '),eh,document.createTextNode(':'),em,eap); return g; },
+						get(){ return { start: to24h(sh.value, sm.value, sap.value), end: to24h(eh.value, em.value, eap.value) }; } };
+					}
+					if (timeFmt==='24h') {
+						const s=build24(fmtHM(defaultStart)); const e=build24(fmtHM(defaultEnd));
+						wrap.append(s, document.createTextNode(' - '), e);
+						return { element:wrap, get(){ const [sh,sm]=s.value.split(':').map(Number); const [eh,em]=e.value.split(':').map(Number); return { start: minutes(sh,sm), end: minutes(eh,em) }; } };
+					} else {
+						const ap=buildAP(); const el=ap.render(); wrap.append(el); return { element:wrap, get(){ return ap.get(); } };
+					}
+				}
+
+				function renderDaysEditor(state) {
+					el.daysWrap.innerHTML='';
+					DAYS.forEach(day=>{
+						const sec=document.createElement('div'); sec.style.borderTop='1px solid #e5e7eb'; sec.style.padding='.5rem 0';
+						const head=document.createElement('div'); head.style.display='flex'; head.style.justifyContent='space-between'; head.style.alignItems='center';
+						head.innerHTML = `<strong>${day}</strong>`;
+						const addBtn=document.createElement('button'); addBtn.className='btn'; addBtn.textContent='Add time'; addBtn.style.padding='.25rem .5rem'; addBtn.style.fontSize='.85rem';
+						const list=document.createElement('div');
+						list.style.marginTop='.35rem';
+						function addRow(range){
+							const row=document.createElement('div'); row.className='mw-row'; row.style.display='flex'; row.style.gap='.5rem'; row.style.alignItems='center';
+							const ti=makeTimeInputs(range?range.start:540, range?range.end:1020);
+							const del=document.createElement('button'); del.className='btn btn-danger'; del.textContent='Remove'; del.style.padding='.25rem .5rem'; del.style.fontSize='.8rem';
+							del.onclick=()=>{ row.remove(); };
+							row.append(ti.element, del); list.append(row);
+						}
+						(state[day]||[]).forEach(addRow);
+						addBtn.onclick=()=>addRow();
+						head.append(addBtn);
+						sec.append(head, list);
+						el.daysWrap.append(sec);
+					});
+				}
+
+				function parseAvailabilityString(text) {
+					const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+					const map = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+					const availability = {};
+					if (!text) return availability;
+					text.split(',').map(s => s.trim()).forEach(block => {
+						// Accept both 24h and am/pm
+						let m = block.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+						if (!m) return;
+						const day = map[m[1]];
+						function toMin(h, mins, ap) { let hh=parseInt(h,10)||0; let mm=mins?parseInt(mins,10):0; if (ap) { const a=ap.toLowerCase(); if (a==='pm'&&hh<12) hh+=12; if (a==='am'&&hh===12) hh=0; } return hh*60+mm; }
+						const start = toMin(m[2], m[3], m[4]);
+						const end = toMin(m[5], m[6], m[7]);
+						if (!availability[day]) availability[day] = [];
+						availability[day].push({ start, end });
+					});
+					return availability;
+				}
+
+				function stateFromString(avStr){ return parseAvailabilityString(avStr||''); }
+				function canonicalFromEditor(){
+					// Walk DOM rows and build canonical 24h string
+					const blocks=[];
+					const sections = el.daysWrap.querySelectorAll(':scope > div');
+					sections.forEach(sec=>{
+						const day = sec.querySelector('strong').textContent;
+						const rows = sec.querySelectorAll('.mw-row');
+						rows.forEach(r=>{
+							const inputs = r.querySelectorAll('input, select');
+							if (inputs.length===2) {
+								const [s,e] = [inputs[0].value, inputs[1].value];
+								if (!s||!e) return; const [sh,sm]=s.split(':').map(Number); const [eh,em]=e.split(':').map(Number);
+								blocks.push(`${ABBR[day]} ${fmtHM(minutes(sh,sm))}-${fmtHM(minutes(eh,em))}`);
+							} else if (inputs.length===6) {
+								// AM/PM selects: sh, :, sm, sap, eh, :, em, eap (we only get selects: sh sm sap eh em eap)
+								const [sh,sm,sap,eh,em,eap] = Array.from(inputs);
+								const sMin = to24h(sh.value, sm.value, sap.value);
+								const eMin = to24h(eh.value, em.value, eap.value);
+								blocks.push(`${ABBR[day]} ${fmtHM(sMin)}-${fmtHM(eMin)}`);
+							}
+						});
+					});
+					return blocks.join(', ');
+				}
+
 				// Reset fields
 				el.first.value = worker['First Name']||'';
 				el.last.value = worker['Last Name']||'';
@@ -256,6 +393,19 @@
 				el.ws.value = worker['Work Study']||'No';
 				el.pinned.value = String(worker.isPinned!=null?worker.isPinned:false);
 				el.avail.value = worker['Days & Times Available']||worker['Availability']||'';
+
+				// Initialize editor from existing availability
+				const initState = stateFromString(el.avail.value);
+				renderDaysEditor(initState);
+
+				function setMode(newMode){ mode=newMode; const isFree = mode==='free'; el.avail.style.display = isFree?'block':'none'; el.availEditor.style.display = isFree?'none':'block'; el.modeFree.style.background = isFree?'#2563eb':'#e5e7eb'; el.modeFree.style.color = isFree?'#fff':'#111827'; el.modeEditor.style.background = !isFree?'#2563eb':'#e5e7eb'; el.modeEditor.style.color = !isFree?'#fff':'#111827'; }
+				function setFmt(fmt){ timeFmt=fmt; el.fmt24.style.background = fmt==='24h'?'#2563eb':'#e5e7eb'; el.fmt24.style.color = fmt==='24h'?'#fff':'#111827'; el.fmtAmPm.style.background = fmt==='ampm'?'#2563eb':'#e5e7eb'; el.fmtAmPm.style.color = fmt==='ampm'?'#fff':'#111827'; // re-render rows to switch inputs
+					renderDaysEditor(stateFromString(canonicalFromEditor()||el.avail.value)); }
+				el.modeFree.onclick = ()=> setMode('free');
+				el.modeEditor.onclick = ()=> setMode('editor');
+				el.fmt24.onclick = ()=> setFmt('24h');
+				el.fmtAmPm.onclick = ()=> setFmt('ampm');
+				setMode('editor'); setFmt('24h');
 				// Build wp checkboxes
 				wpGroup.innerHTML = '';
 				WP_IDS.forEach(id=>{
@@ -275,6 +425,13 @@
 					// Validate
 					const first = el.first.value.trim(); const last = el.last.value.trim(); const email = el.email.value.trim();
 					if (!first || !last || !email) { alert('First, Last, and Email are required'); return; }
+					// Build availability string (canonical 24h, day abbreviations)
+					let availability = '';
+					if (mode==='free') {
+						availability = el.avail.value.trim();
+					} else {
+						availability = canonicalFromEditor();
+					}
 					const data = {
 						'First Name': first,
 						'Last Name': last,
@@ -284,13 +441,12 @@
 						'F Number': el.fnum.value.trim(),
 						'Worker Type': el.type.value,
 						'Work Study': el.ws.value,
-						'Days & Times Available': el.avail.value,
-						'Availability': el.avail.value,
+						'Availability': availability,
 						isPinned: (el.pinned.value === 'true')
 					};
 					const selectedWps = Array.from(wpGroup.querySelectorAll('input[type="checkbox"]:checked')).map(c=>c.value);
 					overlay.style.display='none';
-					resolve({ data, workplaces: selectedWps });
+					resolve({ data, workplaces: selectedWps, cleanup: (mode==='edit') });
 				};
 				overlay.style.display='flex';
 			});
