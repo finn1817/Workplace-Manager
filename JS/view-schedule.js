@@ -42,12 +42,12 @@ export function renderSchedule(data) {
 	const btnList = document.createElement('button');
 	btnList.textContent = '📋 List View';
 	btnList.className = 'btn';
-	btnList.style.cssText = 'padding:0.5rem 1rem;';
+	btnList.style.cssText = 'padding:0.5rem 1rem; color:#000; font-weight:600; cursor:pointer;';
 	
 	const btnGrid = document.createElement('button');
 	btnGrid.textContent = '📊 Grid View';
 	btnGrid.className = 'btn';
-	btnGrid.style.cssText = 'padding:0.5rem 1rem;';
+	btnGrid.style.cssText = 'padding:0.5rem 1rem; color:#000; font-weight:600; cursor:pointer;';
 	
 	toggleBar.appendChild(btnList);
 	toggleBar.appendChild(btnGrid);
@@ -181,19 +181,25 @@ export function renderSchedule(data) {
 		listContainer.style.display = 'block';
 		gridContainer.style.display = 'none';
 		btnList.style.background = '#60a5fa';
+		btnList.style.color = '#000';
 		btnGrid.style.background = '#475569';
+		btnGrid.style.color = '#fff';
 	};
 	
 	btnGrid.onclick = () => {
 		listContainer.style.display = 'none';
 		gridContainer.style.display = 'block';
 		btnList.style.background = '#475569';
+		btnList.style.color = '#fff';
 		btnGrid.style.background = '#60a5fa';
+		btnGrid.style.color = '#000';
 	};
 	
-	// set initial button states
+	// Set initial button states
 	btnList.style.background = '#60a5fa';
+	btnList.style.color = '#000';
 	btnGrid.style.background = '#475569';
+	btnGrid.style.color = '#fff';
 	
 	return wrapper;
 }
