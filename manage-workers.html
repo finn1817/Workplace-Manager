@@ -318,6 +318,8 @@
 				// Create/attach container for per-workplace editors just below the availability section
 				let perWpEditorsWrap = document.getElementById('mwPerWpEditors');
 				if (!perWpEditorsWrap) { perWpEditorsWrap = document.createElement('div'); perWpEditorsWrap.id='mwPerWpEditors'; perWpEditorsWrap.style.marginTop='.5rem'; el.availEditor.parentElement.appendChild(perWpEditorsWrap); }
+				// Always clear any previous editors from prior modal sessions to avoid state bleed
+				perWpEditorsWrap.innerHTML = '';
 				el.perWpEditorsWrap = perWpEditorsWrap;
 
 				// local editor state (avoid name clash with function arg)
@@ -562,7 +564,19 @@
 				}
 				title.textContent = isEditParam ? 'Edit Worker' : 'Add Worker';
 				// Wire buttons
-				const close = () => { overlay.style.display='none'; resolve(null); };
+				const close = () => {
+					// Hide and hard-reset any dynamic modal content so nothing leaks across sessions
+					overlay.style.display='none';
+					try {
+						// Clear per-workplace editors and main day editor
+						if (el.perWpEditorsWrap) el.perWpEditorsWrap.innerHTML = '';
+						if (el.daysWrap) el.daysWrap.innerHTML = '';
+						if (el.avail) el.avail.value = '';
+						// Reset checkboxes (workplaces)
+						if (wpGroup) wpGroup.querySelectorAll('input[type="checkbox"]').forEach(cb=> cb.checked = false);
+					} catch {}
+					resolve(null);
+				};
 				document.getElementById('mwCloseBtn').onclick = close;
 				document.getElementById('mwCancel').onclick = close;
 					document.getElementById('mwSave').onclick = () => {
