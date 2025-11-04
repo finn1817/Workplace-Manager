@@ -131,7 +131,7 @@
           h('td',{}, w['Last Name']||''),
           h('td',{}, w['Email']||w.email||''),
           h('td',{}, ws ? 'Yes' : 'No'),
-          h('td',{}, w['Availability']||'')
+          h('td',{}, w['Availability']||w['Days & Times Available']||'')
         );
         tbody.append(row);
       });
