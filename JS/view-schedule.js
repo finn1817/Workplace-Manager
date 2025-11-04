@@ -191,7 +191,7 @@ export function renderSchedule(data) {
 		btnGrid.style.background = '#60a5fa';
 	};
 	
-	// Set initial button states
+	// set initial button states
 	btnList.style.background = '#60a5fa';
 	btnGrid.style.background = '#475569';
 	
