@@ -37,17 +37,17 @@ export function renderSchedule(data) {
 	
 	// Create view toggle buttons
 	const toggleBar = document.createElement('div');
-	toggleBar.style.cssText = 'display:flex; gap:0.5rem; margin-bottom:1rem;';
+	toggleBar.style.cssText = 'display:flex; gap:0.5rem; margin:0 0 1rem; position:sticky; top:0; z-index:20; background:#0b0b0b; padding-top:0.25rem;';
 	
 	const btnList = document.createElement('button');
 	btnList.textContent = '📋 List View';
 	btnList.className = 'btn';
-	btnList.style.cssText = 'padding:0.5rem 1rem;';
+	btnList.style.cssText = 'padding:0.5rem 1rem; color:#111;';
 	
 	const btnGrid = document.createElement('button');
 	btnGrid.textContent = '📊 Grid View';
 	btnGrid.className = 'btn';
-	btnGrid.style.cssText = 'padding:0.5rem 1rem;';
+	btnGrid.style.cssText = 'padding:0.5rem 1rem; color:#111;';
 	
 	toggleBar.appendChild(btnList);
 	toggleBar.appendChild(btnGrid);
@@ -116,15 +116,19 @@ export function renderSchedule(data) {
 		const runs = buildRunsForDay(slots);
 		const ul = document.createElement('ul');
 		ul.style.listStyle='none';
-		ul.style.padding=0;
+		ul.style.padding='0';
+		ul.style.margin='0';
 		if (runs.length===0){
-			const li=document.createElement('li'); li.style.color='#64748b'; li.style.fontStyle='italic'; li.textContent='(unfilled)'; ul.appendChild(li);
+			const li=document.createElement('li'); li.style.color='#94a3b8'; li.style.fontStyle='italic'; li.textContent='(unfilled)'; li.style.padding='.25rem 0'; ul.appendChild(li);
 		} else {
 			for (const r of runs){
 				const li=document.createElement('li');
 				li.style.padding='.25rem 0';
+				li.style.background='transparent';
+				li.style.border='none';
+				li.style.color='#e5e7eb';
 				li.textContent = `${fmt(r.start)} - ${fmt(r.end)} — ${r.name}`; 
-				if (r.ws) li.style.color = '#86efac';
+				if (r.ws) li.style.color = '#b8f7c6';
 				ul.appendChild(li);
 			}
 		}
