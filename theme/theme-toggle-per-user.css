@@ -1,0 +1,64 @@
+/* Ensure dashboards using .header also keep Fredonia Blue regardless of theme */
+.header {
+	background: var(--banner-blue, #0033A0) !important;
+	color: #ffffff !important;
+}
+
+/* Keep links/buttons in header readable */
+.header a, .header button { color: #ffffff !important; }
+/* Fredonia theme: global tokens and theme surfaces */
+:root{
+	--fredonia-blue: #08519C; /* primary banner */
+	--bg-light: #ffffff;
+	--bg-dark: #000000;
+	--text-light: #111111;
+	--text-dark: #f9fafb;
+	--muted-light: #e5e7eb;
+	--muted-dark: #1f2937;
+	--outline: var(--fredonia-blue);
+}
+
+/* Header/Footer banners are always Fredonia blue */
+header, footer, .modal header, .modal footer{
+	background: var(--fredonia-blue) !important;
+	color: #ffffff !important;
+	border-color: var(--fredonia-blue) !important;
+}
+
+/* Light vs Dark backgrounds and text */
+html[data-theme="light"] body{ background: var(--bg-light); color: var(--text-light); }
+html[data-theme="dark"] body{ background: var(--bg-dark); color: var(--text-dark); }
+
+/* Tables and containers */
+html[data-theme="light"] table{ background:#fff; color: var(--text-light); }
+html[data-theme="dark"] table{ background:#0b0b0b; color: var(--text-dark); }
+html[data-theme="dark"] th, html[data-theme="dark"] td{ border-color: var(--muted-dark); }
+
+/* Inputs */
+html[data-theme="light"] input, html[data-theme="light"] select, html[data-theme="light"] textarea{
+	background:#fff; color:#111; border:1px solid #e5e7eb;
+}
+html[data-theme="dark"] input, html[data-theme="dark"] select, html[data-theme="dark"] textarea{
+	background:#111; color:#f9fafb; border:1px solid var(--muted-dark);
+}
+
+/* Pills and buttons keep contrast; allow existing classes to stand, but adjust borders in dark */
+.pill{ border: 1px solid rgba(0,0,0,0.05); }
+html[data-theme="dark"] .pill{ border-color: var(--muted-dark); }
+
+/* Toolbar and generic outlines */
+.toolbar{ border:1px solid var(--outline); border-radius:10px; padding:.5rem; background: transparent; }
+
+/* Floating theme toggle button */
+.theme-toggle-btn{
+	position: fixed; right: 14px; top: 14px; z-index: 60;
+	background: var(--fredonia-blue); color:#fff; border:none; border-radius:9999px;
+	width: 38px; height: 38px; display:flex; align-items:center; justify-content:center;
+	box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor:pointer;
+}
+.theme-toggle-btn:focus{ outline: 2px solid #fff; outline-offset:2px; }
+
+/* Modals keep blue headers/footers; body adapts to theme */
+html[data-theme="dark"] .modal{ background:#0b0b0b; color:#f9fafb; }
+html[data-theme="light"] .modal{ background:#ffffff; color:#111111; }
+
