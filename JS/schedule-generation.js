@@ -45,19 +45,25 @@ export function parseAvailabilityString(text) {
 	
 	const blocks = text.split(',').map(s => s.trim());
 	blocks.forEach(block => {
-		// Match: "Mon 14:00-19:00" or "Monday 14:00-19:00" (colon REQUIRED in HH:MM)
-		const match = block.match(/^(\w+)\s+(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$/i);
+		// Match: "Mon 14:00-19:00" with optional spaces around hyphen
+		const match = block.match(/^(\w+)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/i);
 		if (!match) return;
 		
 		const [, dayRaw, startTime, endTime] = match;
 		
-		// Normalize day name
+		// Normalize day name (handle abbrev Sun/Mon or full Sunday/Monday)
 		const dayLower = dayRaw.toLowerCase();
-		const day = abbrToFull[dayRaw] || abbrToFull[dayRaw.slice(0,3)] || 
-		            (dayLower === 'sunday' ? 'Sunday' : dayLower === 'monday' ? 'Monday' : 
-		             dayLower === 'tuesday' ? 'Tuesday' : dayLower === 'wednesday' ? 'Wednesday' :
-		             dayLower === 'thursday' ? 'Thursday' : dayLower === 'friday' ? 'Friday' :
-		             dayLower === 'saturday' ? 'Saturday' : null);
+		let day = abbrToFull[dayRaw]; // try exact abbrev first
+		if (!day) {
+			// Try first 3 chars
+			const abbr = dayRaw.slice(0,3);
+			day = abbrToFull[abbr.charAt(0).toUpperCase() + abbr.slice(1).toLowerCase()];
+		}
+		if (!day) {
+			// Try full name
+			const fullMap = { sunday: 'Sunday', monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday' };
+			day = fullMap[dayLower];
+		}
 		
 		if (!day) return;
 		
