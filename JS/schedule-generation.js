@@ -103,12 +103,26 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId, ma
 
 	// Build open windows per day as 1-hour slots; capacity configurable per slot
 	const windows = {};
+	function parseTimeToMinutes(str){
+		if (!str || typeof str !== 'string') return null;
+		const s = str.trim();
+		// Try 24h HH:MM first
+		let m = s.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+		if (m) return parseInt(m[1],10)*60 + parseInt(m[2],10);
+		// Try AM/PM forms like "2:00 PM", "02:30 pm"
+		m = s.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/);
+		if (m) {
+			let hh = parseInt(m[1],10) || 0; const mm = parseInt(m[2],10) || 0; const ap = m[3].toLowerCase();
+			if (ap==='pm' && hh<12) hh+=12; if (ap==='am' && hh===12) hh=0; return hh*60+mm;
+		}
+		return null; // unsupported format
+	}
 	DAYS.forEach(d => {
 		const o = hours[d];
 		if (!o || !o.open || !o.close) { windows[d] = []; return; }
-		const [oh, om] = o.open.split(':').map(Number);
-		const [ch, cm] = o.close.split(':').map(Number);
-		const start = oh*60+om; const end = ch*60+cm;
+		const start = parseTimeToMinutes(String(o.open));
+		const end = parseTimeToMinutes(String(o.close));
+		if (start==null || end==null || !(end>start)) { windows[d] = []; return; }
 		const slots = [];
 		for (let t=start; t<end; t+=60) slots.push({ start:t, end:Math.min(t+60, end), assigned:[] });
 		windows[d] = slots;

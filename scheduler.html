@@ -214,7 +214,14 @@
         output.appendChild(h('div',{class:'card'}, [h('h3',{},'Schedule Created (Current)'), renderSchedule(doc)]));
         status.textContent = 'Done';
       } catch (e) {
-        output.innerHTML = `<div class="card">${e.message||e}</div>`;
+        output.innerHTML = '';
+        const card = h('div',{class:'card'});
+        const pre = document.createElement('pre');
+        pre.style.whiteSpace = 'pre-wrap';
+        pre.style.margin = '0';
+        pre.textContent = String(e && e.message ? e.message : e);
+        card.appendChild(pre);
+        output.appendChild(card);
         status.textContent = 'Error';
       }
     };
