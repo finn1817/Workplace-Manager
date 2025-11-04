@@ -87,14 +87,7 @@
 						<label>F Number</label>
 						<input id="mwFnum" />
 					</div>
-					<div>
-						<label>Worker Type</label>
-						<select id="mwType">
-							<option value="Regular">Regular</option>
-							<option value="Work Study">Work Study</option>
-							<option value="Cover">Cover</option>
-						</select>
-					</div>
+					<!-- Removed legacy Worker Type selector; Work Study boolean is canonical -->
 					<div>
 						<label>Work Study (Yes/No)</label>
 						<select id="mwWS"><option>No</option><option>Yes</option></select>
@@ -353,19 +346,21 @@
 				return wrap;
 			}
 			const table = h('table');
-			const thead = h('thead', { html: `<tr><th>WP</th><th>First</th><th>Last</th><th>Email</th><th>Type</th><th>User Admin</th><th>Actions</th></tr>` });
+			const thead = h('thead', { html: `<tr><th>WP</th><th>First</th><th>Last</th><th>Email</th><th>Work Study</th><th>User Admin</th><th>Actions</th></tr>` });
 			table.appendChild(thead);
 			const tbody = h('tbody');
 			for (const r of rows) {
 				const tr = h('tr');
 				const isAdmin = r.__user && (r.__user.isAdmin===1 || r.__user.isAdmin===true);
 				const wpCell = Array.isArray(r.__wps) ? r.__wps.join(', ') : (r.__wp||'');
+				// Determine Work Study via canonical boolean or legacy fields
+				const wsBool = (r.workStudy===true) || String(r['Work Study']||'').toLowerCase()==='yes' || String(r['Worker Type']||'').toLowerCase()==='work study';
 				tr.innerHTML = `
 					<td>${wpCell}</td>
 					<td>${r['First Name']||''}</td>
 					<td>${r['Last Name']||''}</td>
 					<td>${r['Email']||''}</td>
-					<td>${r['Worker Type']||''}</td>
+					<td>${wsBool ? 'Yes' : 'No'}</td>
 					<td><span class="pill ${isAdmin?'status-ok':'status-bad'}">${isAdmin?'Admin':'User'}</span></td>
 					<td></td>`;
 				const cell = tr.querySelector('td:last-child');
@@ -439,7 +434,6 @@
 					email: document.getElementById('mwEmail'),
 					phone: document.getElementById('mwPhone'),
 					fnum: document.getElementById('mwFnum'),
-					type: document.getElementById('mwType'),
 					ws: document.getElementById('mwWS'),
 					pinned: document.getElementById('mwPinned'),
 					avail: document.getElementById('mwAvail'),
@@ -626,8 +620,9 @@
 				el.email.value = worker['Email']||'';
 				el.phone.value = worker['Phone Number']||worker['Phone']||'';
 				el.fnum.value = worker['F Number']||worker['FNumber']||'';
-				el.type.value = worker['Worker Type']||'Regular';
-				el.ws.value = worker['Work Study']||'No';
+				// Prefill Work Study based on canonical boolean or legacy fields
+				const _wsPrefill = (worker.workStudy===true) || String(worker['Work Study']||'').toLowerCase()==='yes' || String(worker['Worker Type']||'').toLowerCase()==='work study';
+				el.ws.value = _wsPrefill ? 'Yes' : 'No';
 				el.pinned.value = String(worker.isPinned!=null?worker.isPinned:false);
 				el.avail.value = worker['Days & Times Available']||worker['Availability']||'';
 
@@ -733,8 +728,8 @@
 						'Phone Number': el.phone.value.trim(),
 						'Phone': el.phone.value.trim(),
 						'F Number': el.fnum.value.trim(),
-						'Worker Type': el.type.value,
 						'Work Study': el.ws.value,
+						workStudy: (el.ws.value === 'Yes'),
 							'Availability': availability,
 						isPinned: (el.pinned.value === 'true')
 					};
