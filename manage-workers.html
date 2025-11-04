@@ -148,9 +148,29 @@
 		const params = new URLSearchParams(location.search);
 		let currentTab = params.get('wp') || 'all';
 
-		// UI state for search/sort per tab (persist lightly in-memory)
+		// UI state for search/sort per tab (persist via localStorage)
+		const UI_STATE_KEY = 'wm_ui_state_v1';
 		const uiState = { searchTextByTab: {}, nameViewByTab: {} };
 		const defaultNameView = 'first-last'; // or 'last-first'
+		function loadUiState(){
+			try {
+				const raw = localStorage.getItem(UI_STATE_KEY);
+				if (!raw) return;
+				const s = JSON.parse(raw);
+				if (s && typeof s === 'object') {
+					uiState.searchTextByTab = s.searchTextByTab || {};
+					uiState.nameViewByTab = s.nameViewByTab || {};
+				}
+			} catch {}
+		}
+		function persistUiState(){
+			try {
+				localStorage.setItem(UI_STATE_KEY, JSON.stringify({
+					searchTextByTab: uiState.searchTextByTab,
+					nameViewByTab: uiState.nameViewByTab
+				}));
+			} catch {}
+		}
 
 		const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
 
@@ -163,6 +183,9 @@
 			t.onclick = ()=> { currentTab = t.dataset.tab; render(); tabs.forEach(x=>x.classList.toggle('active', x===t)); };
 			if (t.dataset.tab === currentTab) t.classList.add('active');
 		});
+
+		// Load persisted UI state once on startup
+		loadUiState();
 
 		async function fetchWorkersFor(wp) {
 			const db = getDBForWorkplace(wp);
@@ -262,7 +285,7 @@
 			search.value = uiState.searchTextByTab[tabKey] || '';
 			search.style.flex = '1 1 260px';
 			search.style.minWidth = '180px';
-			search.oninput = ()=>{ uiState.searchTextByTab[tabKey] = search.value; render(); };
+			search.oninput = ()=>{ uiState.searchTextByTab[tabKey] = search.value; persistUiState(); render(); };
 
 			const sortWrap = document.createElement('div'); sortWrap.style.display='flex'; sortWrap.style.gap='.35rem'; sortWrap.style.alignItems='center';
 			const lbl = document.createElement('span'); lbl.style.fontSize='.85rem'; lbl.style.color='#374151'; lbl.textContent='Name view:';
@@ -273,8 +296,8 @@
 				const on = (el,active)=>{ el.style.background = active?'#2563eb':'#e5e7eb'; el.style.color = active?'#fff':'#111827'; };
 				on(pillFirst, v==='first-last'); on(pillLast, v==='last-first');
 			};
-			pillFirst.onclick = ()=>{ uiState.nameViewByTab[tabKey] = 'first-last'; setViewUI(); render(); };
-			pillLast.onclick = ()=>{ uiState.nameViewByTab[tabKey] = 'last-first'; setViewUI(); render(); };
+			pillFirst.onclick = ()=>{ uiState.nameViewByTab[tabKey] = 'first-last'; persistUiState(); setViewUI(); render(); };
+			pillLast.onclick = ()=>{ uiState.nameViewByTab[tabKey] = 'last-first'; persistUiState(); setViewUI(); render(); };
 			setViewUI();
 			sortWrap.append(lbl, pillFirst, pillLast);
 
