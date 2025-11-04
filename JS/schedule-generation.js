@@ -1,14 +1,20 @@
 // Schedule generation logic: honors Work Study 5-hour rule, fair fill for regulars, excludes Cover workers
 
-import { collection, getDocs, addDoc, updateDoc, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+import { collection, getDocs, addDoc, updateDoc, query, where, doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
 export async function loadHoursOfOperation(db) {
 	try {
+		// Prefer deterministic settings doc id to match Manage Hours page
+		const preferred = await getDoc(doc(db, 'settings', 'general'));
+		if (preferred.exists()) {
+			const data = preferred.data() || {};
+			if (data.hours_of_operation) return data.hours_of_operation;
+		}
+		// Fallback: scan settings for any legacy docs
 		const settingsSnap = await getDocs(collection(db, 'settings'));
 		let hours = null;
-		settingsSnap.forEach(d => { const data = d.data(); if (data && data.hours_of_operation) hours = data.hours_of_operation; });
-		if (!hours) hours = defaultHours();
-		return hours;
+		settingsSnap.forEach(d => { const data = d.data(); if (!hours && data && data.hours_of_operation) hours = data.hours_of_operation; });
+		return hours || defaultHours();
 	} catch {
 		return defaultHours();
 	}
