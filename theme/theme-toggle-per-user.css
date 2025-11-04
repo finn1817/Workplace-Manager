@@ -6,6 +6,24 @@
 
 /* Keep links/buttons in header readable */
 .header a, .header button { color: #ffffff !important; }
+
+/* Unified header action button appearance regardless of theme */
+.header .header-btn {
+	background: var(--header-button-blue, #60a5fa) !important; /* lighter blue so black text has contrast */
+	color: #000 !important;
+	border: 2px solid #000 !important;
+	border-radius: 10px !important;
+	box-shadow: none !important;
+}
+.header .header-btn:hover { filter: brightness(0.95); }
+
+/* Make the floating theme toggle visually match header buttons */
+.theme-toggle-btn {
+	background: var(--header-button-blue, #60a5fa) !important;
+	color: #000 !important;
+	border: 2px solid #000 !important;
+	border-radius: 10px !important;
+}
 /* Fredonia theme: global tokens and theme surfaces */
 :root{
 	--fredonia-blue: #08519C; /* primary banner */

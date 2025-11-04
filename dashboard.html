@@ -18,6 +18,18 @@
 		.loading { text-align:center; color:#667eea; padding:1rem; }
 		.error { background:#f8d7da; border:1px solid #f5c6cb; color:#721c24; padding:1rem; border-radius:8px; margin:1rem 0; }
 		.info { background:#d1ecf1; border:1px solid #bee5eb; color:#0c5460; padding:1rem; border-radius:8px; margin:1rem 0; }
+
+		/* Consistent header button look (black outline, blue background, black text) */
+		.header .header-btn { 
+			background: var(--header-button-blue, #60a5fa) !important; /* lighter blue for black text readability */
+			color: #000 !important;
+			border: 2px solid #000 !important;
+			border-radius: 10px !important;
+			box-shadow: none !important;
+			padding: 0.6rem 1rem !important;
+		}
+		.header .header-btn + .header-btn { margin-left: .5rem; }
+		.header .header-btn:hover { filter: brightness(0.95); }
 	</style>
     <link rel="stylesheet" href="./theme/theme-toggle-per-user.css" />
 </head>
@@ -26,9 +38,9 @@
 	<div class="header">
 		<h1>🏢 Workplace Scheduler</h1>
 		<div>
-			<a id="manageWorkersBtn" class="btn" href="manage-workers.html" style="display:none;background:#ffc107;color:#212529;margin-right:0.5rem;">👥 Manage Workers</a>
-			<button class="btn" id="myAccountBtn" style="background:#eee;color:#333;margin-right:0.5rem;">👤 My Account</button>
-			<button class="btn" id="logoutBtn" style="background: rgba(255,255,255,0.2); color:white;">Logout</button>
+			<a id="manageWorkersBtn" class="btn header-btn" href="manage-workers.html" style="display:none;">👥 Manage Workers</a>
+			<button class="btn header-btn" id="myAccountBtn">👤 My Account</button>
+			<button class="btn header-btn" id="logoutBtn">Logout</button>
 		</div>
 	</div>
 	<div id="adminControls" class="container" style="display:none;">
