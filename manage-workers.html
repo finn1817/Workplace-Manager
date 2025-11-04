@@ -172,6 +172,16 @@
 			return all;
 		}
 
+		async function fetchWorkerInstancesByEmail(email) {
+			const results = [];
+			for (const wp of WP_IDS) {
+				const db = getDBForWorkplace(wp);
+				const snap = await getDocs(query(collection(db,'workers'), where('Email','==', email)));
+				snap.docs.forEach(d=> results.push({ wp, id:d.id, data:d.data() }));
+			}
+			return results;
+		}
+
 		async function fetchUsers() {
 			const snap = await getDocs(collection(authDb, 'users'));
 			return snap.docs.map(d => ({ id:d.id, ...d.data() }));
@@ -192,7 +202,7 @@
 			return Array.from(map.values());
 		}
 
-		function renderWorkersTable(rows, { allowCrud=true }={}) {
+		function renderWorkersTable(rows, { allowCrud=true, showAllEdit=false }={}) {
 			if (!rows || rows.length === 0) {
 				const wrap = h('div');
 				wrap.append(h('div', { class:'pill' }, 'No workers added'));
@@ -215,7 +225,26 @@
 					<td><span class="pill ${isAdmin?'status-ok':'status-bad'}">${isAdmin?'Admin':'User'}</span></td>
 					<td></td>`;
 				const cell = tr.querySelector('td:last-child');
-				if (allowCrud && !Array.isArray(r.__wps)) {
+				if (Array.isArray(r.__wps) && showAllEdit) {
+					const beAll = h('button', { class:'btn' }, 'Edit (All WPs)');
+					beAll.onclick = async ()=>{
+						const email = r['Email'];
+						const instances = await fetchWorkerInstancesByEmail(email);
+						if (!instances || instances.length===0) { alert('No worker instances found'); return; }
+						const wps = instances.map(i=>i.wp);
+						const base = { ...instances[0].data };
+						const perPrefill = Object.fromEntries(instances.map(i=>[i.wp, i.data['Availability']||'']));
+						const result = await openWorkerModal({ mode:'edit', preselectWps:wps, worker:base, forcePerWpEditors:true, perWpPrefill: perPrefill });
+						if (!result) return; const { data, perWpAvail } = result;
+						for (const inst of instances) {
+							const dbSel = getDBForWorkplace(inst.wp);
+							const payload = { ...data, 'Availability': (perWpAvail && perWpAvail[inst.wp]) || data['Availability'] };
+							await updateWorker(dbSel, inst.id, payload);
+						}
+						await render();
+					};
+					cell.append(beAll);
+				} else if (allowCrud && !Array.isArray(r.__wps)) {
 					const be = h('button', { class:'btn' }, 'Edit'); be.onclick = async ()=>{
 						const result = await openWorkerModal({ mode:'edit', preselectWps:[r.__wp].filter(Boolean), worker:r }); if (!result) return; const { data } = result; 
 						const dbSel = getDBForWorkplace(r.__wp);
@@ -262,7 +291,7 @@
 
 		function labelForWp(id){ return id==='esports_lounge'?'Lounge':id==='esports_arena'?'Arena':'IT Service Center'; }
 
-		function openWorkerModal({ mode='add', preselectWps=[], worker={} }={}) {
+		function openWorkerModal({ mode='add', preselectWps=[], worker={}, forcePerWpEditors=false, perWpPrefill=null }={}) {
 			return new Promise(resolve => {
 				const overlay = document.getElementById('mwModal');
 				const title = document.getElementById('mwModalTitle');
@@ -515,6 +544,22 @@
 					// Hide the single shared editor in add mode; use per-WP editors
 					el.avail.style.display='none'; el.availEditor.style.display='none';
 				}
+				// Multi-edit across workplaces: render per-WP editors even in edit mode
+				if (isEditParam && forcePerWpEditors) {
+					el.avail.style.display='none'; el.availEditor.style.display='none';
+					preselectWps.forEach(id=>{
+						if (!perWpEditors.has(id)) {
+							const ed = buildEditor('');
+							if (perWpPrefill && perWpPrefill[id]) ed.setFromString(perWpPrefill[id]);
+							const card = document.createElement('div'); card.style.marginTop='.5rem'; card.style.background='#f9fafb'; card.style.border='1px solid #e5e7eb'; card.style.borderRadius='10px'; card.style.padding='.5rem';
+							const header = document.createElement('div'); header.style.display='flex'; header.style.justifyContent='space-between'; header.style.alignItems='center';
+							header.innerHTML = `<strong>Availability — ${labelForWp(id)}</strong>`;
+							card.append(header, ed.root);
+							el.perWpEditorsWrap.append(card);
+							perWpEditors.set(id, { ed, card });
+						}
+					});
+				}
 				title.textContent = isEditParam ? 'Edit Worker' : 'Add Worker';
 				// Wire buttons
 				const close = () => { overlay.style.display='none'; resolve(null); };
@@ -546,7 +591,7 @@
 						const selectedWps = Array.from(wpGroup.querySelectorAll('input[type="checkbox"]:checked')).map(c=>c.value);
 						// Per-workplace availability mapping (add mode)
 						const perWpAvail = {};
-						if (!isEditParam) {
+						if (!isEditParam || forcePerWpEditors) {
 							for (const id of selectedWps) {
 								const item = perWpEditors.get(id);
 								perWpAvail[id] = item ? item.ed.canonical() : availability;
@@ -614,7 +659,7 @@
 					};
 					toolbar.append(add);
 					content.append(toolbar);
-					content.appendChild(renderWorkersTable(joined, { allowCrud:false }));
+					content.appendChild(renderWorkersTable(joined, { allowCrud:false, showAllEdit:true }));
 					status.textContent = `All workers: ${joined.length}`; return;
 				}
 				// Workplace-specific tabs
