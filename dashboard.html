@@ -223,97 +223,34 @@
 			return slots.some(s => s.start <= startMin && s.end >= endMin);
 		}
 
-		// Core schedule generation honoring Work Study 5-hour rule
+		// Core schedule generation — delegate to shared generator with prompts
+		import { generateScheduleFromWorkers } from './JS/schedule-generation.js';
+
 		async function generateSchedule() {
 			const scheduleDisplay = document.getElementById('scheduleDisplay');
 			scheduleDisplay.innerHTML = '<div class="loading">🚀 Generating schedule...</div>';
 
-			const hours = await loadWorkplaceData();
 			const workers = await fetchWorkers();
-			// Normalize availability
-			workers.forEach(w => { if (typeof w['Availability'] === 'string') w.availabilityParsed = parseAvailabilityString(w['Availability']); else w.availabilityParsed = w.availability || {}; });
+			// Prompts for tunables
+			let cap = prompt('Max workers per shift?', '2');
+			let maxH = prompt('Max hours per worker?', '20');
+			let sizesStr = prompt('Shift sizes to use (comma-separated from 2-5)', '5,4,3,2');
+			const maxWorkersPerShift = Math.max(1, parseInt(cap||'2',10)||2);
+			const maxHoursPerWorker = Math.max(1, parseInt(maxH||'20',10)||20);
+			const shiftSizes = (sizesStr||'5,4,3,2').split(',').map(s=>parseInt(s.trim(),10)).filter(n=>n>=1&&n<=12);
 
+			const scheduleDoc = await generateScheduleFromWorkers(db, workers, { workplaceId: selectedWorkplace, maxWorkersPerShift, maxHoursPerWorker, shiftSizes });
+
+			// Render (simple list)
 			const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-
-			// Build open windows per day (1h blocks for simplicity)
-			const windows = {};
-			DAYS.forEach(d => {
-				const o = hours[d];
-				if (!o || !o.open || !o.close) { windows[d] = []; return; }
-				const [oh, om] = o.open.split(':').map(Number);
-				const [ch, cm] = o.close.split(':').map(Number);
-				const start = oh*60+om; const end = ch*60+cm;
-				const slots = [];
-				for (let t=start; t<end; t+=60) slots.push({ start:t, end:Math.min(t+60, end), assigned:[] });
-				windows[d] = slots;
-			});
-
-			// Assign Work Study exactly 5 hours
-			const workStudy = workers.filter(w => (w['Worker Type']==='Work Study' || w['Work Study']==='Yes') && w['Worker Type'] !== 'Cover');
-			const regular = workers.filter(w => !(w['Worker Type']==='Work Study' || w['Work Study']==='Yes') && w['Worker Type'] !== 'Cover');
-
-			const assignedHours = Object.fromEntries(workers.map(w => [w['Email'] || w.email, 0]));
-
-			function tryAssign(worker, neededHours) {
-				let remaining = neededHours;
-				for (const d of DAYS) {
-					for (const slot of windows[d]) {
-						if (slot.assigned.length >= 2) continue; // capacity 2
-						if (!isAvailable(worker, d, slot.start, slot.end)) continue;
-						const key = worker['Email'] || worker.email;
-						slot.assigned.push({ email:key, name:`${worker['First Name']||worker.first_name||''} ${worker['Last Name']||worker.last_name||''}`.trim(), ws: (w=> (w['Worker Type']==='Work Study'||w['Work Study']==='Yes'))(worker) });
-						assignedHours[key] += (slot.end-slot.start)/60;
-						remaining -= (slot.end-slot.start)/60;
-						if (remaining <= 0) return true;
-					}
-				}
-				return remaining <= 0;
-			}
-
-			// WS first
-			for (const w of workStudy) {
-				const ok = tryAssign(w, 5);
-				if (!ok) {
-					scheduleDisplay.innerHTML = `<div class="error">🚨 Work Study availability issue for ${w['First Name']} ${w['Last Name']} — they must have at least 5 hours within operating hours.</div>`;
-					return;
-				}
-			}
-
-			// Regulars: fair distribution
-			// target = remaining available capacity / number of regulars
-			const totalCapacity = Object.values(windows).flat().length * 2; // slots * 1h * capacity 2
-			const wsHours = workStudy.length * 5;
-			const remainingTarget = Math.max(0, totalCapacity - wsHours);
-			const targetPerRegular = regular.length>0 ? remainingTarget/regular.length : 0;
-
-			for (const w of regular) {
-				tryAssign(w, targetPerRegular);
-			}
-
-			// Persist as current schedule document
-			const scheduleDoc = { isCurrent:true, createdAt:new Date().toISOString(), workplace:selectedWorkplace, schedule: {} };
-			for (const d of DAYS) {
-				scheduleDoc.schedule[d] = windows[d].map(s => ({ start:s.start, end:s.end, assigned:s.assigned }));
-			}
-			// Upsert current schedule (replace existing current if any)
-			const existing = await getDocs(query(collection(db, Paths.schedules), where('isCurrent','==',true)));
-			if (!existing.empty) {
-				await updateDoc(existing.docs[0].ref, scheduleDoc);
-			} else {
-				await addDoc(collection(db, Paths.schedules), scheduleDoc);
-			}
-
-			// Render
-			const fmt = m => {
-				const h = Math.floor(m/60), mm = (m%60).toString().padStart(2,'0');
-				const ap = h>=12?'PM':'AM';
-				const hh = (h%12)||12; return `${hh}:${mm} ${ap}`;
-			};
+			const fmt = m => { const h=Math.floor(m/60),mm=(m%60).toString().padStart(2,'0'); const ap=h>=12?'PM':'AM'; const hh=(h%12)||12; return `${hh}:${mm} ${ap}`; };
 			let html = '';
 			for (const d of DAYS) {
 				html += `<h3 class="day-header">${d}</h3>`;
-				for (const s of scheduleDoc.schedule[d]) {
-					const names = s.assigned.map(a=>a.name||a.email).join(', ') || '(unfilled)';
+				const arr = scheduleDoc.schedule && scheduleDoc.schedule[d] || [];
+				if (!arr.length) { html += `<div class="shift">(closed or no slots)</div>`; continue; }
+				for (const s of arr) {
+					const names = (s.assigned||[]).map(a=>a.name||a.email).join(', ') || '(unfilled)';
 					html += `<div class="shift">${fmt(s.start)} - ${fmt(s.end)} — ${names}</div>`;
 				}
 			}

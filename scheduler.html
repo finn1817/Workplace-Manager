@@ -69,7 +69,7 @@
     import { getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect, isAdminUser } from './JS/admin-status.js';
     import { collection, getDocs, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
-    import { generateScheduleFromWorkers, loadHoursOfOperation } from './JS/schedule-generation.js';
+  import { generateScheduleFromWorkers, loadHoursOfOperation } from './JS/schedule-generation.js';
     import { loadCurrentSchedule, renderSchedule } from './JS/view-schedule.js';
 
     const status = document.getElementById('status');
@@ -157,9 +157,16 @@
       if (!db || !selectedWP) { output.innerHTML = '<div class="card">Select a workplace first.</div>'; return; }
       const chosen = getSelectedWorkers();
       if (!chosen.length) { output.innerHTML = '<div class="card">Select at least one worker.</div>'; return; }
+      // Pre-generation tunables
+      let cap = prompt('Max workers per shift?', '2');
+      let maxH = prompt('Max hours per worker?', '20');
+      let sizesStr = prompt('Shift sizes to use (comma-separated from 2-5)', '5,4,3,2');
+      const maxWorkersPerShift = Math.max(1, parseInt(cap||'2',10)||2);
+      const maxHoursPerWorker = Math.max(1, parseInt(maxH||'20',10)||20);
+      const shiftSizes = (sizesStr||'5,4,3,2').split(',').map(s=>parseInt(s.trim(),10)).filter(n=>n>=1&&n<=12);
       status.textContent = 'Generating…';
       try {
-        const doc = await generateScheduleFromWorkers(db, chosen, { workplaceId: selectedWP });
+        const doc = await generateScheduleFromWorkers(db, chosen, { workplaceId: selectedWP, maxWorkersPerShift, maxHoursPerWorker, shiftSizes });
         output.innerHTML = '';
         output.appendChild(h('div',{class:'card'}, [h('h3',{},'Schedule Created (Current)'), renderSchedule(doc)]));
         status.textContent = 'Done';

@@ -32,24 +32,34 @@ export async function loadWorkers(db) {
 }
 
 export function parseAvailabilityString(text) {
-	const map = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+	// Accept both abbreviations (Sun..Sat) and full names (Sunday..Saturday)
+	const abbrToFull = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+	const fullDays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 	const availability = {};
 	if (!text) return availability;
-	text.split(',').map(s => s.trim()).forEach(block => {
-		const m = block.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
-		if (!m) return;
-		const day = map[m[1]];
+	text.split(/[;,]/).map(s => s.trim()).forEach(block => {
+		if (!block) return;
+		// Try abbreviated day first
+		let m = block.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+		let day = null, start = null, end = null;
 		function toMinutes(h, mins, ap) {
 			let hh = parseInt(h,10);
 			let mm = mins?parseInt(mins,10):0;
-			if (ap) {
-				const apL = ap.toLowerCase();
-				if (apL === 'pm' && hh < 12) hh += 12; if (apL === 'am' && hh === 12) hh = 0;
-			}
+			if (ap) { const apL = ap.toLowerCase(); if (apL==='pm' && hh<12) hh+=12; if (apL==='am' && hh===12) hh=0; }
 			return hh*60+mm;
 		}
-		const start = toMinutes(m[2], m[3], m[4]);
-		const end = toMinutes(m[5], m[6], m[7]);
+		if (m) {
+			day = abbrToFull[m[1]];
+			start = toMinutes(m[2], m[3], m[4]);
+			end   = toMinutes(m[5], m[6], m[7]);
+		} else {
+			// Try full day names
+			const full = block.match(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+			if (!full) return;
+			day = full[1].charAt(0).toUpperCase()+full[1].slice(1).toLowerCase();
+			start = toMinutes(full[2], full[3], full[4]);
+			end   = toMinutes(full[5], full[6], full[7]);
+		}
 		if (!availability[day]) availability[day] = [];
 		availability[day].push({ start, end });
 	});
@@ -67,7 +77,7 @@ export async function generateSchedule(db, { workplaceId }) {
 }
 
 // New: allow caller to provide selected workers subset
-export async function generateScheduleFromWorkers(db, workers, { workplaceId }) {
+export async function generateScheduleFromWorkers(db, workers, { workplaceId, maxWorkersPerShift=2, maxHoursPerWorker=20, shiftSizes=[5,4,3,2] }={}) {
 	const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
 	const hours = await loadHoursOfOperation(db);
@@ -79,7 +89,7 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId }) 
 		else w.availabilityParsed = {};
 	});
 
-	// Build open windows per day as 1-hour slots; capacity=2 per slot
+	// Build open windows per day as 1-hour slots; capacity configurable per slot
 	const windows = {};
 	DAYS.forEach(d => {
 		const o = hours[d];
@@ -93,7 +103,7 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId }) 
 	});
 
 	// Segregate workers (Cover concept removed; rely on workStudy boolean only)
-	const isWS = w => (w.workStudy === true || String(w['Work Study']).toLowerCase() === 'yes');
+	const isWS = w => (w.workStudy === true || String(w['Work Study']||'').toLowerCase() === 'yes' || String(w['Worker Type']||'').toLowerCase()==='work study');
 	const pool = workers; // include everyone; admin selects who to include on scheduler page
 	const workStudy = pool.filter(isWS);
 	const regular = pool.filter(w => !isWS(w));
@@ -102,30 +112,74 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId }) 
 	const displayName = w => `${w['First Name']||w.first_name||''} ${w['Last Name']||w.last_name||''}`.trim() || keyFor(w);
 	const assignedHours = Object.fromEntries(pool.map(w => [keyFor(w), 0]));
 
+	function canPlaceBlock(day, startIdx, length, worker) {
+		const slots = windows[day];
+		if (startIdx + length > slots.length) return false;
+		for (let i=0;i<length;i++) {
+			const s = slots[startIdx+i];
+			if (!s) return false;
+			if (s.assigned.length >= maxWorkersPerShift) return false;
+			if (!isAvailable(worker, day, s.start, s.end)) return false;
+		}
+		return true;
+	}
+
+	function placeBlock(day, startIdx, length, worker) {
+		const slots = windows[day];
+		const key = keyFor(worker);
+		for (let i=0;i<length;i++) {
+			const s = slots[startIdx+i];
+			s.assigned.push({ email:key, name:displayName(worker), ws:isWS(worker) });
+		}
+		assignedHours[key] += length; // hours
+	}
+
 	function tryAssign(worker, neededHours) {
 		let remaining = neededHours;
+		const key = keyFor(worker);
 		for (const d of DAYS) {
-			for (const slot of windows[d]) {
-				if (slot.assigned.length >= 2) continue; // capacity
-				if (!isAvailable(worker, d, slot.start, slot.end)) continue;
-				const key = keyFor(worker);
-				slot.assigned.push({ email:key, name:displayName(worker), ws:isWS(worker) });
-				assignedHours[key] += (slot.end-slot.start)/60;
-				remaining -= (slot.end-slot.start)/60;
-				if (remaining <= 0) return true;
+			const slots = windows[d];
+			for (let idx=0; idx<slots.length && remaining>0; idx++) {
+				const hoursLeft = Math.max(0, maxHoursPerWorker - (assignedHours[key]||0));
+				if (hoursLeft <= 0) return remaining <= 0;
+				// Try preferred shift sizes (5,4,3,2) without exceeding remaining or hoursLeft
+				for (const size of shiftSizes) {
+					const take = Math.min(size, remaining, hoursLeft);
+					if (take < 1) continue;
+					if (canPlaceBlock(d, idx, take, worker)) {
+						placeBlock(d, idx, take, worker);
+						remaining -= take;
+						idx += (take-1); // skip over newly placed block
+						break; // move forward after placing one block starting here
+					}
+				}
 			}
 		}
 		return remaining <= 0;
 	}
 
+	// Precheck: each WS must have at least 5 hours of availability within operating hours
+	function computeAvailableHoursWithinOpen(worker) {
+		let total = 0;
+		for (const d of DAYS) {
+			const slots = windows[d];
+			for (const s of slots) {
+				if (isAvailable(worker, d, s.start, s.end)) total += 1; // 1 hour per slot
+			}
+		}
+		return total; // hours
+	}
+
 	// Assign WS 5 hours each
 	for (const w of workStudy) {
+		const availHrs = computeAvailableHoursWithinOpen(w);
+		if (availHrs < 5) throw new Error(`Work Study availability issue for ${displayName(w)} — requires ≥5 hours within operating hours (has ${availHrs}h).`);
 		const ok = tryAssign(w, 5);
 		if (!ok) throw new Error(`Work Study availability issue for ${displayName(w)} — they must have at least 5 hours within operating hours.`);
 	}
 
 	// Fair fill for regulars
-	const totalSlots = Object.values(windows).flat().length * 2;
+	const totalSlots = Object.values(windows).flat().length * maxWorkersPerShift;
 	const wsHours = workStudy.length * 5;
 	const remainingTarget = Math.max(0, totalSlots - wsHours);
 	const targetPerRegular = regular.length>0 ? remainingTarget/regular.length : 0;
