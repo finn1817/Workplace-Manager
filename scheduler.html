@@ -26,7 +26,7 @@
   <link rel="stylesheet" href="./theme/theme-toggle-per-user.css" />
 </head>
 <body>
-  <script type="module" src="./theme/theme-toggle-per-user.js"></script>
+  <script type="module" src="./theme/theme-toggle-per-user.js" data-cfasync="false"></script>
   <header>
     <h1 style="margin:0;font-size:1.15rem;">🗓️ Schedule Builder</h1>
     <div class="actions">
@@ -66,8 +66,8 @@
     </div>
 
     <div id="stepActions" class="section actions" style="display:none;">
-      <button id="btnGenerate" class="btn">📅 Generate Schedule</button>
-      <button id="btnViewCurrent" class="btn">👁️ View Current Schedule</button>
+      <button id="btnGenerate" class="btn" type="button" onclick="window.__gen && window.__gen()">📅 Generate Schedule</button>
+      <button id="btnViewCurrent" class="btn" type="button">👁️ View Current Schedule</button>
     </div>
 
     <div id="output" class="section"></div>
@@ -133,7 +133,7 @@
     </div>
   </div>
 
-  <script type="module">
+  <script type="module" data-cfasync="false">
     import './firebase/config.js';
     import { getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect, isAdminUser } from './JS/admin-status.js';
@@ -156,6 +156,14 @@
   const btnSaveSchedule = document.getElementById('btnSaveSchedule');
   const btnCancelEdit = document.getElementById('btnCancelEdit');
   console.log('🔍 Button elements found:', { btnVerify, btnGenerate });
+  // Global click logger to diagnose click issues
+  document.addEventListener('click', (e)=>{
+    try {
+      const tgt = e.target;
+      const btn = tgt.closest && tgt.closest('button');
+      console.log('👆 Global click:', { targetId: tgt.id, targetTag: tgt.tagName, nearestButtonId: btn?.id, btnGenerateIsSame: btn === btnGenerate });
+    } catch {}
+  }, true);
 
     let selectedWP = null; let db = null; let isAdmin = false;
     let allWorkers = [];
@@ -337,8 +345,9 @@
       });
     }
 
-    document.getElementById('btnGenerate').onclick = async ()=>{
-      console.log('🎯 Generate button clicked');
+    // Define the generation flow once and bind multiple ways (onclick, listener, window fallback)
+    async function startGenerateFlow(){
+      console.log('🎯 Generate flow started');
       output.innerHTML='';
       editModeSection.style.display='none';
       if (!isAdmin) { 
@@ -418,7 +427,14 @@
         output.appendChild(card);
         status.textContent = 'Error';
       }
-    };
+    }
+
+    // Bind in multiple ways
+    document.getElementById('btnGenerate').onclick = startGenerateFlow;
+    document.getElementById('btnGenerate').addEventListener('click', ()=>{ console.log('🎯 (addEventListener) Generate button clicked'); });
+    document.getElementById('btnGenerate').addEventListener('click', ()=>{ console.log('🎯 (capture) Generate button clicked'); }, true);
+    // Expose global fallback for inline onclick
+    window.__gen = startGenerateFlow;
     console.log('✅ Generate button onclick handler registered');
 
     // Save Schedule button handler
