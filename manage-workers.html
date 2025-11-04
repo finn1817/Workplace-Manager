@@ -238,16 +238,37 @@
 			};
 		}
 
+		function workerMatchesWholeWords(row, q){
+			const query = normalize(q);
+			if (!query) return true;
+			const tokens = query.split(/\s+/).filter(Boolean);
+			if (tokens.length===0) return true;
+			const {first, last} = getNameParts(row);
+			const nameWords = new Set([normalize(first), normalize(last)]);
+			const email = String(row['Email']||'').toLowerCase();
+			const wpTxt = Array.isArray(row.__wps) ? row.__wps.join(',') : (row.__wp||'');
+			const wp = normalize(wpTxt);
+			return tokens.every(tok => nameWords.has(tok) || email.includes(tok) || wp.includes(tok));
+		}
+
+		function userMatchesWholeWords(u, q){
+			const query = normalize(q);
+			if (!query) return true;
+			const tokens = query.split(/\s+/).filter(Boolean);
+			if (tokens.length===0) return true;
+			const first = normalize(u.firstName);
+			const last = normalize(u.lastName);
+			const email = normalize(u.email);
+			const phone = normalize(u.phone);
+			const words = new Set([first, last]);
+			return tokens.every(tok => words.has(tok) || email.includes(tok) || phone.includes(tok));
+		}
+
 		function filterAndSortWorkers(rows, searchText, nameView){
-			const q = normalize(searchText||'');
+			const q = searchText || '';
 			let filtered = rows;
-			if (q) {
-				filtered = rows.filter(r=>{
-					const {first,last} = getNameParts(r);
-					const email = String(r['Email']||'').toLowerCase();
-					const wpTxt = Array.isArray(r.__wps) ? r.__wps.join(',') : (r.__wp||'');
-					return normalize(first).includes(q) || normalize(last).includes(q) || email.includes(q) || normalize(wpTxt).includes(q);
-				});
+			if (normalize(q)) {
+				filtered = rows.filter(r=> workerMatchesWholeWords(r, q));
 			}
 			const view = nameView || defaultNameView;
 			filtered.sort((a,b)=>{
@@ -262,10 +283,10 @@
 		}
 
 		function filterAndSortUsers(rows, searchText, nameView){
-			const q = normalize(searchText||'');
+			const q = searchText || '';
 			let filtered = rows;
-			if (q) {
-				filtered = rows.filter(u=> normalize(u.firstName).includes(q) || normalize(u.lastName).includes(q) || normalize(u.email).includes(q) || normalize(u.phone).includes(q));
+			if (normalize(q)) {
+				filtered = rows.filter(u=> userMatchesWholeWords(u, q));
 			}
 			const view = nameView || defaultNameView;
 			filtered.sort((a,b)=>{
@@ -278,6 +299,12 @@
 			return filtered;
 		}
 
+		function commitSearch(tabKey, value){
+			uiState.searchTextByTab[tabKey] = value;
+			persistUiState();
+			render();
+		}
+
 		function buildSearchAndSortToolbar({ onAdd=null, tabKey }){
 			const wrap = h('div', { class:'toolbar' });
 			const search = document.createElement('input');
@@ -285,7 +312,10 @@
 			search.value = uiState.searchTextByTab[tabKey] || '';
 			search.style.flex = '1 1 260px';
 			search.style.minWidth = '180px';
-			search.oninput = ()=>{ uiState.searchTextByTab[tabKey] = search.value; persistUiState(); render(); };
+			// Don't re-render on every keystroke; commit on Enter, blur, or Search button
+			search.oninput = ()=>{ /* store locally only */ };
+			search.onkeyup = (e)=>{ if (e.key==='Enter') commitSearch(tabKey, search.value); };
+			search.onblur = ()=>{ commitSearch(tabKey, search.value); };
 
 			const sortWrap = document.createElement('div'); sortWrap.style.display='flex'; sortWrap.style.gap='.35rem'; sortWrap.style.alignItems='center';
 			const lbl = document.createElement('span'); lbl.style.fontSize='.85rem'; lbl.style.color='#374151'; lbl.textContent='Name view:';
@@ -301,11 +331,16 @@
 			setViewUI();
 			sortWrap.append(lbl, pillFirst, pillLast);
 
+			const doSearchBtn = h('button', { class:'btn' }, 'Search');
+			doSearchBtn.onclick = ()=> commitSearch(tabKey, search.value);
+			const clearBtn = h('button', { class:'btn' }, 'Clear');
+			clearBtn.onclick = ()=>{ search.value=''; commitSearch(tabKey, ''); };
+
 			if (onAdd) {
 				const addBtn = h('button', { class:'btn btn-primary' }, 'Add Worker');
 				addBtn.onclick = onAdd; wrap.append(addBtn);
 			}
-			wrap.append(search, sortWrap);
+			wrap.append(search, doSearchBtn, clearBtn, sortWrap);
 			return wrap;
 		}
 
