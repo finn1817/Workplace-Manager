@@ -85,7 +85,7 @@ export function renderSchedule(data) {
 		ul.style.padding=0;
 		for (const s of slots) {
 			const li=document.createElement('li'); 
-			li.style.padding='.25rem 0';
+			li.style.cssText = 'padding:.25rem 0; color:#e5e7eb;';
 			const names = (s.assigned||[]).map(a=>a.name||a.email).join(', ') || '(unfilled)';
 			li.textContent = `${fmt(s.start)} - ${fmt(s.end)} — ${names}`; 
 			ul.appendChild(li);
