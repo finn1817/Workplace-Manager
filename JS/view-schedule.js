@@ -10,8 +10,10 @@ export async function loadCurrentSchedule(db) {
 }
 
 export function renderSchedule(data) {
+	console.log('🎨 renderSchedule called with data:', data);
 	const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 	const wrapper = document.createElement('div');
+	console.log('📦 Created wrapper element:', wrapper);
 	
 	// Show title and timestamp if available
 	if (data.title || data.createdAtFormatted || data.createdAt) {
@@ -38,20 +40,24 @@ export function renderSchedule(data) {
 	// Create view toggle buttons
 	const toggleBar = document.createElement('div');
 	toggleBar.style.cssText = 'display:flex; gap:0.5rem; margin-bottom:1rem;';
+	console.log('🔘 Created toggleBar:', toggleBar);
 	
 	const btnList = document.createElement('button');
 	btnList.textContent = '📋 List View';
 	btnList.className = 'btn';
 	btnList.style.cssText = 'padding:0.5rem 1rem; color:#000; font-weight:600; cursor:pointer;';
+	console.log('🔵 Created btnList:', btnList);
 	
 	const btnGrid = document.createElement('button');
 	btnGrid.textContent = '📊 Grid View';
 	btnGrid.className = 'btn';
 	btnGrid.style.cssText = 'padding:0.5rem 1rem; color:#000; font-weight:600; cursor:pointer;';
+	console.log('🔲 Created btnGrid:', btnGrid);
 	
 	toggleBar.appendChild(btnList);
 	toggleBar.appendChild(btnGrid);
 	wrapper.appendChild(toggleBar);
+	console.log('✅ Toggle buttons added to wrapper');
 	
 	// Create containers for both views
 	const listContainer = document.createElement('div');
@@ -200,6 +206,8 @@ export function renderSchedule(data) {
 	btnList.style.color = '#000';
 	btnGrid.style.background = '#475569';
 	btnGrid.style.color = '#fff';
+	console.log('🎨 Initial button states set');
+	console.log('🎁 Returning wrapper with children:', wrapper.children.length);
 	
 	return wrapper;
 }
