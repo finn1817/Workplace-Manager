@@ -24,9 +24,27 @@
 	<div class="header">
 		<h1>🏢 Workplace Scheduler</h1>
 		<div>
+			<a id="manageWorkersBtn" class="btn" href="manage-workers.html" style="display:none;background:#ffc107;color:#212529;margin-right:0.5rem;">👥 Manage Workers</a>
 			<button class="btn" id="myAccountBtn" style="background:#eee;color:#333;margin-right:0.5rem;">👤 My Account</button>
 			<button class="btn" id="logoutBtn" style="background: rgba(255,255,255,0.2); color:white;">Logout</button>
 		</div>
+	</div>
+	<div id="adminControls" class="container" style="display:none;">
+		<h2>Admin Controls</h2>
+		<div style="display:flex;flex-wrap:wrap;gap:.75rem;">
+			<button class="btn" id="btnManageHours" style="background:#28a745;color:#fff;">🕒 Manage Hours</button>
+			<a class="btn" id="btnAdminManageWorkers" href="manage-workers.html" style="background:#17a2b8;color:#fff;">👥 Manage Workers</a>
+			<button class="btn" id="btnAdminAddWorker" style="background:#28a745;color:#fff;">➕ Add Worker</button>
+			<a class="btn" id="btnImportWorkers" href="manage-workers.html?import=1" style="background:#28a745;color:#fff;">📥 Import Workers</a>
+			<button class="btn" id="btnHourRequests" style="background:#f4c20d;color:#212529;">⏳ Hour Requests</button>
+			<a class="btn" id="btnViewMessages" href="admin-messages.html" style="background:#17a2b8;color:#fff;">💬 View Messages</a>
+			<button class="btn" id="btnTimeOff" style="background:#f4c20d;color:#212529;">🏖️ Time Off Requests</button>
+			<button class="btn" id="btnShiftSwap" style="background:#17a2b8;color:#fff;">🔁 Shift Swap Requests</button>
+			<a class="btn" id="btnEmailChange" href="admin-requests.html#emailchange" style="background:#f4c20d;color:#212529;">✉️ Email Change Requests</a>
+			<button class="btn" id="btnRemoveAllWorkers" style="background:#dc3545;color:#fff;">🗑️ Remove All Workers</button>
+			<button class="btn" id="btnCleanupSchedules" style="background:#dc3545;color:#fff;">🧹 Clean Up Old Schedules</button>
+		</div>
+		<div style="margin-top:.5rem;color:#6c757d;font-size:.9rem;">Note: Database Maintenance and Force Auto-Restore are intentionally omitted.</div>
 	</div>
 
 	<div class="container">
@@ -52,9 +70,11 @@
 
 	<script type="module">
 		import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-		import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+		import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, query, where, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 		import { getStorage } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-storage.js';
 		import { getDBForWorkplace, getStorageForWorkplace } from './firebase/config.js';
+		import { isAdminUser } from './JS/admin-status.js';
+		import { addWorker } from './JS/worker-CRUD.js';
 
 		// Auth user from localStorage
 		const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -271,6 +291,16 @@
 			scheduleDisplay.innerHTML = html || '<div class="info">No shifts to display.</div>';
 		}
 
+		// Admin button
+		(async () => {
+			const manageBtn = document.getElementById('manageWorkersBtn');
+			const isAdmin = await isAdminUser(user.email);
+			if (isAdmin) {
+				manageBtn.style.display='inline-block';
+				document.getElementById('adminControls').style.display='block';
+			}
+		})();
+
 		// Wire UI
 		const cards = document.querySelectorAll('.workplace-card');
 		const scheduleDisplay = document.getElementById('scheduleDisplay');
@@ -302,6 +332,52 @@
 		// Logout
 		document.getElementById('logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('user'); window.location.href='index.html'; });
 		document.getElementById('myAccountBtn').addEventListener('click', ()=>{ alert(`Logged in as ${user.email}\nAdmin: ${user.isAdmin? 'Yes': 'No'}`); });
+
+		// Admin control handlers
+		const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
+		const pickWP = ()=> prompt('Workplace (esports_lounge, esports_arena, it_service_center)');
+
+		document.getElementById('btnManageHours').onclick = ()=> window.location.href = 'manage-hours.html';
+		document.getElementById('btnHourRequests').onclick = ()=> window.location.href = 'admin-requests.html#hours';
+		document.getElementById('btnTimeOff').onclick = ()=> window.location.href = 'admin-requests.html#timeoff';
+		document.getElementById('btnShiftSwap').onclick = ()=> window.location.href = 'admin-requests.html#shiftswap';
+		document.getElementById('btnEmailChange').onclick = ()=> window.location.href = 'admin-requests.html#emailchange';
+
+		document.getElementById('btnAdminAddWorker').onclick = async () => {
+			const wp = pickWP(); if (!wp || !WP_IDS.includes(wp)) return alert('Invalid workplace');
+			const firstName = prompt('First Name'); if (!firstName) return;
+			const lastName = prompt('Last Name'); if (!lastName) return;
+			const email = prompt('Email'); if (!email) return;
+			const type = prompt('Worker Type (Work Study/Regular/Cover)','Regular');
+			const availability = prompt('Availability','');
+			await addWorker(getDBForWorkplace(wp), { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability });
+			alert('Worker added');
+		};
+
+		document.getElementById('btnRemoveAllWorkers').onclick = async () => {
+			const wp = pickWP(); if (!wp || !WP_IDS.includes(wp)) return alert('Invalid workplace');
+			if (!confirm(`Delete ALL workers in ${wp}? This cannot be undone.`)) return;
+			const dbSel = getDBForWorkplace(wp);
+			const snap = await getDocs(collection(dbSel, 'workers'));
+			await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+			alert(`Removed ${snap.size} workers from ${wp}.`);
+		};
+
+		document.getElementById('btnCleanupSchedules').onclick = async () => {
+			const wp = pickWP(); if (!wp || !WP_IDS.includes(wp)) return alert('Invalid workplace');
+			if (!confirm(`Clean up old schedules in ${wp}? (keeps current; deletes non-current older than 60 days)`)) return;
+			const dbSel = getDBForWorkplace(wp);
+			const now = Date.now();
+			const snap = await getDocs(collection(dbSel, 'schedules'));
+			let removed = 0;
+			for (const d of snap.docs) {
+				const data = d.data();
+				if (data.isCurrent) continue;
+				const t = Date.parse(data.createdAt || '') || 0;
+				if (now - t > 1000*60*60*24*60) { await deleteDoc(d.ref); removed++; }
+			}
+			alert(`Removed ${removed} old schedules from ${wp}.`);
+		};
 	</script>
 </body>
 </html>

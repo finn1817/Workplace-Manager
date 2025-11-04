@@ -3,29 +3,208 @@
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<title>Manage Workers</title>
+	<title>Manage Workers (Admin)</title>
+	<style>
+		body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f8f9fa; margin:0; }
+		header { background:#111827; color:white; padding:1rem 1.5rem; display:flex; align-items:center; justify-content:space-between; }
+		.tabs { display:flex; gap:.5rem; padding: .75rem 1rem; background:#fff; border-bottom:1px solid #e5e7eb; position:sticky; top:0; z-index:10; }
+		.tab { padding:.5rem .75rem; border:1px solid #e5e7eb; background:#f9fafb; border-radius:8px; cursor:pointer; }
+		.tab.active { background:#2563eb; color:white; border-color:#2563eb; }
+		.container { max-width:1200px; margin:0 auto; padding:1rem; }
+		table { width:100%; border-collapse:collapse; background:#fff; }
+		th, td { padding:.5rem .75rem; border-bottom:1px solid #e5e7eb; text-align:left; }
+		.toolbar { display:flex; gap:.5rem; margin:.75rem 0; }
+		.btn { padding:.5rem .75rem; border:none; border-radius:8px; background:#374151; color:white; cursor:pointer; }
+		.btn-primary { background:#2563eb; }
+		.btn-danger { background:#b91c1c; }
+		.pill { display:inline-block; padding:.15rem .45rem; border-radius:9999px; background:#e5e7eb; font-size:.75rem; }
+		.status-ok { background:#bbf7d0; }
+		.status-bad { background:#fecaca; }
+	</style>
 </head>
 <body>
-	<div id="app"></div>
+	<header>
+		<h1 style="margin:0; font-size:1.1rem;">👥 Manage Workers</h1>
+		<div>
+			<a class="btn" href="dashboard.html">🏠 Home</a>
+		</div>
+	</header>
+	<div class="tabs">
+		<button class="tab" data-tab="all">All Workers</button>
+		<button class="tab" data-tab="esports_lounge">Lounge</button>
+		<button class="tab" data-tab="esports_arena">Arena</button>
+		<button class="tab" data-tab="it_service_center">IT Service Center</button>
+		<button class="tab" data-tab="users">Users (Auth)</button>
+	</div>
+	<div class="container">
+		<div id="status" class="pill">Loading…</div>
+		<div id="content"></div>
+	</div>
 
 	<script type="module">
 		import './firebase/config.js';
-		import { bootstrap } from './JS/workplace-page.js';
+		import { getDBForWorkplace, AUTH_APP } from './firebase/config.js';
+		import { guardAdminOrRedirect, isAdminUser, setAdmin } from './JS/admin-status.js';
+		import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+		import { addWorker, updateWorker, deleteWorker } from './JS/worker-CRUD.js';
+
+		if (!(await guardAdminOrRedirect())) return;
+
+		const authDb = getFirestore(AUTH_APP);
+		const tabs = document.querySelectorAll('.tab');
+		const status = document.getElementById('status');
+		const content = document.getElementById('content');
 		const params = new URLSearchParams(location.search);
-		const wp = params.get('wp');
-		if (!wp) {
-			document.getElementById('app').innerHTML = `
-				<div class="container">
-					<h1>Select a workplace</h1>
-					<ul>
-						<li><a href="./Workplaces/esports-shultz.html">eSports Lounge (Shultz)</a></li>
-						<li><a href="./Workplaces/esports-arena.html">eSports Arena</a></li>
-						<li><a href="./Workplaces/ITS-Service-Center.html">IT Service Center</a></li>
-					</ul>
-				</div>`;
-		} else {
-			bootstrap({ workplaceId: wp });
+		let currentTab = params.get('wp') || 'all';
+
+		const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
+
+		function h(tag, attrs={}, children=[]) {
+			const e=document.createElement(tag); Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); });
+			(Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c)); return e;
 		}
+
+		tabs.forEach(t=>{
+			t.onclick = ()=> { currentTab = t.dataset.tab; render(); tabs.forEach(x=>x.classList.toggle('active', x===t)); };
+			if (t.dataset.tab === currentTab) t.classList.add('active');
+		});
+
+		async function fetchWorkersFor(wp) {
+			const db = getDBForWorkplace(wp);
+			const snap = await getDocs(collection(db, 'workers'));
+			return snap.docs.map(d=>({ id:d.id, ...d.data(), __wp: wp }));
+		}
+
+		async function fetchAllWorkers() {
+			const all = [];
+			for (const id of WP_IDS) all.push(...await fetchWorkersFor(id));
+			return all;
+		}
+
+		async function fetchUsers() {
+			const snap = await getDocs(collection(authDb, 'users'));
+			return snap.docs.map(d => ({ id:d.id, ...d.data() }));
+		}
+
+		function joinWorkersUsers(workers, users) {
+			const byEmail = new Map(users.map(u=>[String(u.email||'').toLowerCase(), u]));
+			return workers.map(w=>({ ...w, __user: byEmail.get(String(w['Email']||'').toLowerCase()) || null }));
+		}
+
+		function renderWorkersTable(rows, { allowCrud=true }={}) {
+			const table = h('table');
+			const thead = h('thead', { html: `<tr><th>WP</th><th>First</th><th>Last</th><th>Email</th><th>Type</th><th>User Admin</th><th>Actions</th></tr>` });
+			table.appendChild(thead);
+			const tbody = h('tbody');
+			for (const r of rows) {
+				const tr = h('tr');
+				const isAdmin = r.__user && (r.__user.isAdmin===1 || r.__user.isAdmin===true);
+				tr.innerHTML = `
+					<td>${r.__wp||''}</td>
+					<td>${r['First Name']||''}</td>
+					<td>${r['Last Name']||''}</td>
+					<td>${r['Email']||''}</td>
+					<td>${r['Worker Type']||''}</td>
+					<td><span class="pill ${isAdmin?'status-ok':'status-bad'}">${isAdmin?'Admin':'User'}</span></td>
+					<td></td>`;
+				const cell = tr.querySelector('td:last-child');
+				if (allowCrud) {
+					const be = h('button', { class:'btn' }, 'Edit'); be.onclick = async ()=>{
+						const data = await promptEditWorker(r); if (!data) return; await updateWorker(getDBForWorkplace(r.__wp), r.id, data); await render(); };
+					const bd = h('button', { class:'btn btn-danger' }, 'Delete'); bd.onclick = async ()=>{ if (!confirm('Delete worker?')) return; await deleteWorker(getDBForWorkplace(r.__wp), r.id); await render(); };
+					cell.append(be, bd);
+				}
+				tbody.appendChild(tr);
+			}
+			table.appendChild(tbody);
+			return table;
+		}
+
+		function renderUsersTable(rows) {
+			const table = h('table');
+			table.appendChild(h('thead',{ html:`<tr><th>First</th><th>Last</th><th>Email</th><th>Phone</th><th>Admin</th><th>Actions</th></tr>` }));
+			const tbody = h('tbody');
+			rows.forEach(u=>{
+				const tr = h('tr'); const isA = (u.isAdmin===1||u.isAdmin===true);
+				tr.innerHTML = `
+					<td>${u.firstName||''}</td>
+					<td>${u.lastName||''}</td>
+					<td>${u.email||''}</td>
+					<td>${u.phone||''}</td>
+					<td><span class="pill ${isA?'status-ok':'status-bad'}">${isA?'Admin':'User'}</span></td>
+					<td></td>`;
+				const cell = tr.querySelector('td:last-child');
+				const toggle = h('button', { class:'btn' }, isA ? 'Revoke Admin' : 'Make Admin');
+				toggle.onclick = async ()=>{ await setAdmin(u.email, !isA); await render(); };
+				cell.append(toggle);
+				tbody.appendChild(tr);
+			});
+			table.appendChild(tbody); return table;
+		}
+
+		async function promptEditWorker(w) {
+			const firstName = prompt('First Name', w['First Name']||''); if (firstName===null) return null;
+			const lastName = prompt('Last Name', w['Last Name']||''); if (lastName===null) return null;
+			const email = prompt('Email', w['Email']||''); if (email===null) return null;
+			const type = prompt('Worker Type (Work Study/Regular/Cover)', w['Worker Type']||'Regular'); if (type===null) return null;
+			const availability = prompt('Availability', w['Availability']||''); if (availability===null) return null;
+			return { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability };
+		}
+
+		async function render() {
+			status.textContent = 'Loading…'; content.innerHTML = '';
+			try {
+				if (currentTab === 'users') {
+					const users = await fetchUsers();
+					content.appendChild(renderUsersTable(users));
+					status.textContent = `Users: ${users.length}`; return;
+				}
+				if (currentTab === 'all') {
+					const [workers, users] = [await fetchAllWorkers(), await fetchUsers()];
+					const joined = joinWorkersUsers(workers, users);
+					const toolbar = h('div', { class:'toolbar' });
+					const add = h('button', { class:'btn btn-primary' }, 'Add Worker');
+					add.onclick = async ()=>{
+						const wp = prompt('Workplace (esports_lounge/esports_arena/it_service_center)', 'esports_lounge'); if (!wp) return;
+						const firstName = prompt('First Name'); if (!firstName) return;
+						const lastName = prompt('Last Name'); if (!lastName) return;
+						const email = prompt('Email'); if (!email) return;
+						const type = prompt('Worker Type (Work Study/Regular/Cover)', 'Regular');
+						const availability = prompt('Availability','');
+						await addWorker(getDBForWorkplace(wp), { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability });
+						await render();
+					};
+					toolbar.append(add);
+					content.append(toolbar);
+					content.appendChild(renderWorkersTable(joined));
+					status.textContent = `All workers: ${joined.length}`; return;
+				}
+				// Workplace-specific tabs
+				if (WP_IDS.includes(currentTab)) {
+					const [rows, users] = [await fetchWorkersFor(currentTab), await fetchUsers()];
+					const joined = joinWorkersUsers(rows, users);
+					const toolbar = h('div', { class:'toolbar' });
+					const add = h('button', { class:'btn btn-primary' }, 'Add Worker');
+					add.onclick = async ()=>{
+						const firstName = prompt('First Name'); if (!firstName) return;
+						const lastName = prompt('Last Name'); if (!lastName) return;
+						const email = prompt('Email'); if (!email) return;
+						const type = prompt('Worker Type (Work Study/Regular/Cover)', 'Regular');
+						const availability = prompt('Availability','');
+						await addWorker(getDBForWorkplace(currentTab), { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability });
+						await render();
+					};
+					toolbar.append(add);
+					content.append(toolbar);
+					content.appendChild(renderWorkersTable(joined));
+					status.textContent = `${currentTab} workers: ${joined.length}`; return;
+				}
+			} catch (e) {
+				status.textContent = e.message; status.classList.add('status-bad');
+			}
+		}
+
+		await render();
 	</script>
 </body>
 </html>

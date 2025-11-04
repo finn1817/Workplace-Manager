@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Messages</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f8f9fa; margin:0; }
+    header { background:#0f172a; color:#fff; padding:1rem 1.5rem; display:flex; justify-content:space-between; align-items:center; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 1rem; }
+    .wp-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1rem; margin-bottom:1rem; }
+    .msg { border-bottom:1px solid #e5e7eb; padding:.5rem 0; }
+    .meta { color:#6b7280; font-size:.85rem; }
+    .actions { display:flex; gap:.5rem; margin-top:.25rem; }
+    .btn { padding:.35rem .6rem; border:none; border-radius:6px; cursor:pointer; }
+    .btn-handle { background:#16a34a; color:#fff; }
+    .btn-delete { background:#dc2626; color:#fff; }
+    .pill { background:#e5e7eb; border-radius:9999px; padding:.15rem .45rem; font-size:.8rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 style="margin:0; font-size:1.1rem;">💬 Admin Messages</h1>
+    <a class="btn" href="dashboard.html" style="background:#475569;color:#fff;">⬅ Back</a>
+  </header>
+  <div class="container">
+    <div id="status" class="pill">Loading…</div>
+    <div id="content"></div>
+  </div>
+
+  <script type="module">
+    import './firebase/config.js';
+    import { getDBForWorkplace } from './firebase/config.js';
+    import { guardAdminOrRedirect } from './JS/admin-status.js';
+    import { collection, getDocs, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+
+    if (!(await guardAdminOrRedirect())) return;
+
+    const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
+    const status = document.getElementById('status');
+    const content = document.getElementById('content');
+
+    function h(tag, attrs={}, children=[]) { const e=document.createElement(tag); Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); }); (Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c)); return e; }
+
+    async function loadMessages(db) {
+      const snap = await getDocs(collection(db,'messages'));
+      return snap.docs.map(d=>({ id:d.id, ref:d.ref, ...d.data() }));
+    }
+
+    async function render() {
+      status.textContent='Loading…'; content.innerHTML='';
+      for (const wp of WP_IDS) {
+        const db = getDBForWorkplace(wp);
+        const items = await loadMessages(db);
+        const card = h('div',{class:'wp-card'});
+        card.append(h('h3',{},`📨 ${wp}`));
+        if (!items.length) { card.append(h('div',{class:'meta'},'No messages.')); content.append(card); continue; }
+        items.forEach(m=>{
+          const row = h('div',{class:'msg'});
+          row.append(h('div',{}, m.message || m.text || '(no content)'));
+          row.append(h('div',{class:'meta'}, `${m.name||m.from||'unknown'} • ${m.email||''} • ${m.createdAt||''} • status: ${m.status||'open'}`));
+          const actions = h('div',{class:'actions'});
+          const b1 = h('button',{class:'btn btn-handle'},'Mark Handled'); b1.onclick = async ()=>{ await updateDoc(m.ref, { status:'handled', handledAt: new Date().toISOString() }); b1.disabled=true; };
+          const b2 = h('button',{class:'btn btn-delete'},'Delete'); b2.onclick = async ()=>{ await deleteDoc(m.ref); row.remove(); };
+          actions.append(b1,b2); row.append(actions); card.append(row);
+        });
+        content.append(card);
+      }
+      status.textContent='Ready';
+    }
+
+    render();
+  </script>
+</body>
+</html>

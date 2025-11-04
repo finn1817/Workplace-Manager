@@ -7,6 +7,7 @@ import { loadCurrentSchedule, renderSchedule } from './view-schedule.js';
 import { loadWorkers, renderWorkers } from './view-workers.js';
 import { addWorker, updateWorker, deleteWorker } from './worker-CRUD.js';
 import { listAnnouncements, addAnnouncement, updateAnnouncement, deleteAnnouncement, renderAnnouncements, renderAnnouncementComposer } from './announcements.js';
+import { isAdminUser } from './admin-status.js';
 import { 
 	listShiftPostings, createShiftPosting, closeShiftPosting, listApplications, applyToPosting, approveApplication,
 	listCoverageRequests, createCoverageRequest, resolveCoverageRequest, listActiveCoverage,
@@ -30,13 +31,14 @@ export async function bootstrap({ workplaceId }) {
 	const root = document.getElementById('app');
 	root.innerHTML = '';
 
-	const header = el('div', { class: 'wp-header' }, [
+		const header = el('div', { class: 'wp-header' }, [
 		el('h1', { class: 'wp-title', html: `Workplace — ${workplaceId.replace(/_/g,' ')}` }),
 		el('div', { class: 'wp-actions' }, [
 			el('button', { id: 'btnViewCurrent', class: 'btn' }, 'View Current Schedule'),
 			el('button', { id: 'btnGenerate', class: 'btn btn-primary' }, 'Generate New Schedule'),
 			el('button', { id: 'btnWorkers', class: 'btn' }, 'View Workers'),
 				el('button', { id: 'btnAddWorker', class: 'btn btn-success' }, 'Add Worker'),
+				el('a', { id: 'btnManageWorkers', class: 'btn', href: `../manage-workers.html?wp=${workplaceId}`, style: 'display:none;background:#ffc107;color:#212529;' }, '👥 Manage Workers'),
 				el('button', { id: 'btnAnnouncements', class: 'btn' }, 'Announcements'),
 				el('button', { id: 'btnCoverage', class: 'btn' }, 'Coverage')
 		])
@@ -110,6 +112,15 @@ export async function bootstrap({ workplaceId }) {
 		await addWorker(db, { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability });
 		await showWorkers();
 	};
+
+		// Admin gating for Manage Workers link
+		try {
+			const email = JSON.parse(localStorage.getItem('user')||'{}').email;
+			if (email && await isAdminUser(email)) {
+				const link = document.getElementById('btnManageWorkers');
+				if (link) link.style.display='inline-block';
+			}
+		} catch {}
 
 		// Announcements view
 		async function showAnnouncements() {

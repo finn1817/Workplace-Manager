@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manage Hours (Admin)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f8f9fa; margin:0; }
+    header { background:#0f172a; color:#fff; padding:1rem 1.5rem; display:flex; justify-content:space-between; align-items:center; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 1rem; }
+    .wp-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1rem; margin-bottom:1rem; }
+    .row { display:grid; grid-template-columns: 140px 1fr 1fr; gap:.5rem .75rem; align-items:center; }
+    .row label { font-weight:600; color:#374151; }
+    input { padding:.5rem; border:1px solid #e5e7eb; border-radius:6px; }
+    .btn { padding:.5rem .75rem; border:none; border-radius:8px; background:#2563eb; color:white; cursor:pointer; }
+    .toolbar { display:flex; gap:.5rem; margin:.5rem 0 1rem; }
+    .pill { background:#e5e7eb; border-radius:9999px; padding:.15rem .45rem; font-size:.8rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 style="margin:0; font-size:1.1rem;">🕒 Manage Hours</h1>
+    <a class="btn" href="dashboard.html" style="background:#475569;">⬅ Back</a>
+  </header>
+  <div class="container">
+    <div id="status" class="pill">Loading…</div>
+    <div id="content"></div>
+  </div>
+
+  <script type="module">
+    import './firebase/config.js';
+    import { getDBForWorkplace } from './firebase/config.js';
+    import { guardAdminOrRedirect } from './JS/admin-status.js';
+    import { collection, getDocs, addDoc, updateDoc, doc, setDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+
+    if (!(await guardAdminOrRedirect())) return;
+
+    const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
+    const status = document.getElementById('status');
+    const content = document.getElementById('content');
+
+    function defaultHours() {
+      return { Monday:{open:'09:00',close:'17:00'}, Tuesday:{open:'09:00',close:'17:00'}, Wednesday:{open:'09:00',close:'17:00'}, Thursday:{open:'09:00',close:'17:00'}, Friday:{open:'09:00',close:'17:00'}, Saturday:{open:null,close:null}, Sunday:{open:null,close:null} };
+    }
+
+    function h(tag, attrs={}, children=[]) { const e=document.createElement(tag); Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); }); (Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c)); return e; }
+
+    async function loadHours(db) {
+      const snap = await getDocs(collection(db,'settings'));
+      let cfg = null, ref=null; snap.forEach(d=>{ const x=d.data(); if (x && x.hours_of_operation) { cfg = x.hours_of_operation; ref = d.ref; }});
+      if (!cfg) cfg = defaultHours();
+      return { cfg, ref };
+    }
+
+    async function saveHours(db, ref, cfg) {
+      if (ref) await updateDoc(ref, { hours_of_operation: cfg });
+      else await addDoc(collection(db,'settings'), { hours_of_operation: cfg, updatedAt: new Date().toISOString() });
+    }
+
+    function renderEditor(wp, cfg, onSave) {
+      const card = h('div', { class:'wp-card' });
+      card.append(h('h3', {}, `${wp.replace(/_/g,' ')}`));
+      const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+      const grid = h('div', { class:'row' });
+      grid.append(h('div',{},''), h('div',{},'Open (HH:MM)'), h('div',{},'Close (HH:MM)'));
+      days.forEach(d=>{
+        const open = h('input', { value: cfg[d]?.open||'', placeholder:'HH:MM' });
+        const close = h('input', { value: cfg[d]?.close||'', placeholder:'HH:MM' });
+        grid.append(h('label',{},d), open, close);
+        open.oninput = ()=>{ cfg[d] = cfg[d]||{}; cfg[d].open=open.value||null; };
+        close.oninput = ()=>{ cfg[d] = cfg[d]||{}; cfg[d].close=close.value||null; };
+      });
+      const btn = h('button', { class:'btn' }, 'Save'); btn.onclick = onSave;
+      card.append(grid, h('div',{class:'toolbar'}, btn));
+      return card;
+    }
+
+    async function render() {
+      status.textContent = 'Loading…'; content.innerHTML='';
+      for (const wp of WP_IDS) {
+        const db = getDBForWorkplace(wp);
+        const { cfg, ref } = await loadHours(db);
+        const editor = renderEditor(wp, cfg, async ()=>{ await saveHours(db, ref, cfg); alert('Saved'); });
+        content.append(editor);
+      }
+      status.textContent = 'Ready';
+    }
+
+    render();
+  </script>
+</body>
+</html>
