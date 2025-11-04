@@ -111,7 +111,7 @@ export function renderSchedule(data) {
 		return startA - startB;
 	});
 	
-	// Build header row
+	// build header row
 	const thead = document.createElement('thead');
 	const headerRow = document.createElement('tr');
 	const timeHeader = document.createElement('th');
