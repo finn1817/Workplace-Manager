@@ -148,6 +148,10 @@
 		const params = new URLSearchParams(location.search);
 		let currentTab = params.get('wp') || 'all';
 
+		// UI state for search/sort per tab (persist lightly in-memory)
+		const uiState = { searchTextByTab: {}, nameViewByTab: {} };
+		const defaultNameView = 'first-last'; // or 'last-first'
+
 		const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
 
 		function h(tag, attrs={}, children=[]) {
@@ -200,6 +204,86 @@
 				else map.get(key).__wps.push(w.__wp);
 			}
 			return Array.from(map.values());
+		}
+
+		function normalize(str){ return String(str||'').trim().toLowerCase(); }
+		function compareStr(a,b){ return a.localeCompare(b, undefined, { sensitivity:'base' }); }
+		function getNameParts(row){
+			return {
+				first: String(row['First Name']||row.firstName||'').trim(),
+				last: String(row['Last Name']||row.lastName||'').trim()
+			};
+		}
+
+		function filterAndSortWorkers(rows, searchText, nameView){
+			const q = normalize(searchText||'');
+			let filtered = rows;
+			if (q) {
+				filtered = rows.filter(r=>{
+					const {first,last} = getNameParts(r);
+					const email = String(r['Email']||'').toLowerCase();
+					const wpTxt = Array.isArray(r.__wps) ? r.__wps.join(',') : (r.__wp||'');
+					return normalize(first).includes(q) || normalize(last).includes(q) || email.includes(q) || normalize(wpTxt).includes(q);
+				});
+			}
+			const view = nameView || defaultNameView;
+			filtered.sort((a,b)=>{
+				const A = getNameParts(a); const B = getNameParts(b);
+				if (view==='last-first') {
+					const c = compareStr(A.last, B.last); if (c!==0) return c; return compareStr(A.first, B.first);
+				} else {
+					const c = compareStr(A.first, B.first); if (c!==0) return c; return compareStr(A.last, B.last);
+				}
+			});
+			return filtered;
+		}
+
+		function filterAndSortUsers(rows, searchText, nameView){
+			const q = normalize(searchText||'');
+			let filtered = rows;
+			if (q) {
+				filtered = rows.filter(u=> normalize(u.firstName).includes(q) || normalize(u.lastName).includes(q) || normalize(u.email).includes(q) || normalize(u.phone).includes(q));
+			}
+			const view = nameView || defaultNameView;
+			filtered.sort((a,b)=>{
+				if (view==='last-first') {
+					const c = compareStr(a.lastName||'', b.lastName||''); if (c!==0) return c; return compareStr(a.firstName||'', b.firstName||'');
+				} else {
+					const c = compareStr(a.firstName||'', b.firstName||''); if (c!==0) return c; return compareStr(a.lastName||'', b.lastName||'');
+				}
+			});
+			return filtered;
+		}
+
+		function buildSearchAndSortToolbar({ onAdd=null, tabKey }){
+			const wrap = h('div', { class:'toolbar' });
+			const search = document.createElement('input');
+			search.placeholder = 'Search name or email…';
+			search.value = uiState.searchTextByTab[tabKey] || '';
+			search.style.flex = '1 1 260px';
+			search.style.minWidth = '180px';
+			search.oninput = ()=>{ uiState.searchTextByTab[tabKey] = search.value; render(); };
+
+			const sortWrap = document.createElement('div'); sortWrap.style.display='flex'; sortWrap.style.gap='.35rem'; sortWrap.style.alignItems='center';
+			const lbl = document.createElement('span'); lbl.style.fontSize='.85rem'; lbl.style.color='#374151'; lbl.textContent='Name view:';
+			const pillFirst = h('div', { class:'pill' }, 'First, Last'); pillFirst.style.cursor='pointer';
+			const pillLast = h('div', { class:'pill' }, 'Last, First'); pillLast.style.cursor='pointer';
+			const setViewUI = ()=>{
+				const v = uiState.nameViewByTab[tabKey] || defaultNameView;
+				const on = (el,active)=>{ el.style.background = active?'#2563eb':'#e5e7eb'; el.style.color = active?'#fff':'#111827'; };
+				on(pillFirst, v==='first-last'); on(pillLast, v==='last-first');
+			};
+			pillFirst.onclick = ()=>{ uiState.nameViewByTab[tabKey] = 'first-last'; setViewUI(); render(); };
+			pillLast.onclick = ()=>{ uiState.nameViewByTab[tabKey] = 'last-first'; setViewUI(); render(); };
+			setViewUI();
+			sortWrap.append(lbl, pillFirst, pillLast);
+
+			if (onAdd) {
+				const addBtn = h('button', { class:'btn btn-primary' }, 'Add Worker');
+				addBtn.onclick = onAdd; wrap.append(addBtn);
+			}
+			wrap.append(search, sortWrap);
+			return wrap;
 		}
 
 		function renderWorkersTable(rows, { allowCrud=true, showAllEdit=false }={}) {
@@ -644,7 +728,11 @@
 			status.textContent = 'Loading…'; content.innerHTML = '';
 			try {
 				if (currentTab === 'users') {
-					const users = await fetchUsers();
+					const usersRaw = await fetchUsers();
+					const q = uiState.searchTextByTab[currentTab] || '';
+					const v = uiState.nameViewByTab[currentTab] || defaultNameView;
+					const users = filterAndSortUsers(usersRaw, q, v);
+					content.appendChild(buildSearchAndSortToolbar({ tabKey: currentTab }));
 					content.appendChild(renderUsersTable(users));
 					status.textContent = `Users: ${users.length}`; return;
 				}
@@ -653,9 +741,10 @@
 					let joined = joinWorkersUsers(workers, users);
 					// Aggregate by email so each person shows once across workplaces
 					joined = aggregateByEmail(joined);
-					const toolbar = h('div', { class:'toolbar' });
-					const add = h('button', { class:'btn btn-primary' }, 'Add Worker');
-					add.onclick = async ()=>{
+					const q = uiState.searchTextByTab[currentTab] || '';
+					const v = uiState.nameViewByTab[currentTab] || defaultNameView;
+					joined = filterAndSortWorkers(joined, q, v);
+					const addHandler = async ()=>{
 						const result = await openWorkerModal({ mode:'add', preselectWps: WP_IDS });
 						if (!result) return;
 						const { data, workplaces, perWpAvail } = result;
@@ -671,18 +760,18 @@
 						}
 						await render();
 					};
-					toolbar.append(add);
-					content.append(toolbar);
+					content.appendChild(buildSearchAndSortToolbar({ onAdd: addHandler, tabKey: currentTab }));
 					content.appendChild(renderWorkersTable(joined, { allowCrud:false, showAllEdit:true }));
 					status.textContent = `All workers: ${joined.length}`; return;
 				}
 				// Workplace-specific tabs
 				if (WP_IDS.includes(currentTab)) {
 					const [rows, users] = [await fetchWorkersFor(currentTab), await fetchUsers()];
-					const joined = joinWorkersUsers(rows, users);
-					const toolbar = h('div', { class:'toolbar' });
-					const add = h('button', { class:'btn btn-primary' }, 'Add Worker');
-					add.onclick = async ()=>{
+					let joined = joinWorkersUsers(rows, users);
+					const q = uiState.searchTextByTab[currentTab] || '';
+					const v = uiState.nameViewByTab[currentTab] || defaultNameView;
+					joined = filterAndSortWorkers(joined, q, v);
+					const addHandler = async ()=>{
 						const result = await openWorkerModal({ mode:'add', preselectWps:[currentTab] });
 						if (!result) return; const { data, workplaces, perWpAvail } = result;
 						const targets = (workplaces && workplaces.length>0) ? workplaces : [currentTab];
@@ -696,8 +785,7 @@
 						}
 						await render();
 					};
-					toolbar.append(add);
-					content.append(toolbar);
+					content.appendChild(buildSearchAndSortToolbar({ onAdd: addHandler, tabKey: currentTab }));
 					content.appendChild(renderWorkersTable(joined));
 					status.textContent = `${currentTab} workers: ${joined.length}`; return;
 				}
