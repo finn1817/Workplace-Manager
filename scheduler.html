@@ -218,8 +218,9 @@
       const win={};
       for (const d of DAYS){ const o=hours[d]; if(!o||!o.open||!o.close){ win[d]=[]; continue; }
         const start=parseTimeToMinutes(String(o.open)); const end=parseTimeToMinutes(String(o.close));
-        if(start==null||end==null||!(end>start)){ win[d]=[]; continue; }
-        const slots=[]; for(let t=start;t<end;t+=60){ slots.push({start:t,end:Math.min(t+60,end)}); } win[d]=slots; }
+        if(start==null||end==null){ win[d]=[]; continue; }
+        let s=start; let e=end; if(e<=s) e=24*60; // support 16:00-00:00 as 16:00-24:00
+        const slots=[]; for(let t=s;t<e;t+=60){ slots.push({start:t,end:Math.min(t+60,e)}); } win[d]=slots; }
       return win;
     }
     function isAvailableRanges(ranges, start, end){ return (ranges||[]).some(r=> r.start<=start && r.end>=end); }

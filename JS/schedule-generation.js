@@ -58,6 +58,7 @@ export function parseAvailabilityString(text) {
 			day = abbrToFull[m[1]];
 			start = toMinutes(m[2], m[3], m[4]);
 			end   = toMinutes(m[5], m[6], m[7]);
+			if (end <= start) end = 24*60; // support ranges like 18:30-00:00
 		} else {
 			// Try full day names
 			const full = block.match(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
@@ -65,6 +66,7 @@ export function parseAvailabilityString(text) {
 			day = full[1].charAt(0).toUpperCase()+full[1].slice(1).toLowerCase();
 			start = toMinutes(full[2], full[3], full[4]);
 			end   = toMinutes(full[5], full[6], full[7]);
+			if (end <= start) end = 24*60;
 		}
 		if (!availability[day]) availability[day] = [];
 		availability[day].push({ start, end });
@@ -122,9 +124,12 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId, ma
 		if (!o || !o.open || !o.close) { windows[d] = []; return; }
 		const start = parseTimeToMinutes(String(o.open));
 		const end = parseTimeToMinutes(String(o.close));
-		if (start==null || end==null || !(end>start)) { windows[d] = []; return; }
+		if (start==null || end==null) { windows[d] = []; return; }
+		let s = start; let e = end;
+		// Support ranges that end at midnight or cross midnight (e <= s). For scheduling, cap at 24:00 of the same day.
+		if (e <= s) e = 24*60; // e.g., 16:00-00:00 => 16:00-24:00
 		const slots = [];
-		for (let t=start; t<end; t+=60) slots.push({ start:t, end:Math.min(t+60, end), assigned:[] });
+		for (let t=s; t<e; t+=60) slots.push({ start:t, end:Math.min(t+60, e), assigned:[] });
 		windows[d] = slots;
 	});
 
