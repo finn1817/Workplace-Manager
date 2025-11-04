@@ -505,10 +505,10 @@
         const successCard = h('div', {class:'card'}, [
           h('h3', {}, '✅ Schedule Saved Successfully'),
           h('p', {}, `Title: ${pendingSchedule.title}`),
-          h('p', {}, `Created: ${pendingSchedule.createdAtFormatted}`),
-          renderSchedule(pendingSchedule)
+          h('p', {}, `Created: ${pendingSchedule.createdAtFormatted}`)
         ]);
         output.appendChild(successCard);
+        output.appendChild(renderSchedule(pendingSchedule));
         
         // Hide edit mode
         editModeSection.style.display = 'none';
@@ -538,7 +538,9 @@
       if (!db) { output.innerHTML = '<div class="card">Select a workplace first.</div>'; return; }
       const data = await loadCurrentSchedule(db);
       if (!data) { output.innerHTML = '<div class="card">No current schedule found.</div>'; return; }
-      output.appendChild(h('div',{class:'card'}, [h('h3',{},'Current Schedule'), renderSchedule(data)]));
+      const titleCard = h('div',{class:'card'}, [h('h3',{},'Current Schedule')]);
+      output.appendChild(titleCard);
+      output.appendChild(renderSchedule(data));
     };
 
     (async ()=>{
