@@ -1,216 +1,243 @@
-// View current schedule utilities
-
+// Clean schedule viewer with Text and Grid views
 import { collection, getDocs, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+/**
+ * Load the current active schedule from Firestore
+ */
 export async function loadCurrentSchedule(db) {
-	const snap = await getDocs(query(collection(db, 'schedules'), where('isCurrent','==',true)));
+	const q = query(collection(db, 'schedules'), where('isCurrent', '==', true));
+	const snap = await getDocs(q);
 	if (snap.empty) return null;
 	const doc = snap.docs[0];
 	return { id: doc.id, ...doc.data() };
 }
 
-export function renderSchedule(data) {
-	console.log('🎨 renderSchedule called with data:', data);
-	const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-	const wrapper = document.createElement('div');
-	console.log('📦 Created wrapper element:', wrapper);
-	
-	// Show title and timestamp if available
-	if (data.title || data.createdAtFormatted || data.createdAt) {
-		const headerDiv = document.createElement('div');
-		headerDiv.style.cssText = 'margin-bottom:1.5rem; padding:1rem; background:#1e293b; border-radius:8px; border-left:4px solid #60a5fa;';
-		
-		if (data.title) {
-			const titleEl = document.createElement('h2');
-			titleEl.textContent = data.title;
-			titleEl.style.cssText = 'margin:0 0 0.5rem 0; color:#60a5fa; font-size:1.5rem;';
-			headerDiv.appendChild(titleEl);
-		}
-		
-		if (data.createdAtFormatted || data.createdAt) {
-			const timeEl = document.createElement('div');
-			timeEl.textContent = '📅 ' + (data.createdAtFormatted || new Date(data.createdAt).toLocaleString());
-			timeEl.style.cssText = 'color:#94a3b8; font-size:0.9rem;';
-			headerDiv.appendChild(timeEl);
-		}
-		
-		wrapper.appendChild(headerDiv);
+/**
+ * Format minutes since midnight to 12-hour time (e.g., 540 -> "9:00 AM")
+ */
+function formatTime(minutes) {
+	const hours = Math.floor(minutes / 60);
+	const mins = minutes % 60;
+	const period = hours >= 12 ? 'PM' : 'AM';
+	const displayHour = hours % 12 || 12;
+	return `${displayHour}:${String(mins).padStart(2, '0')} ${period}`;
+}
+
+/**
+ * Render schedule with two view modes: Text and Grid
+ */
+export function renderSchedule(scheduleData) {
+	if (!scheduleData || !scheduleData.schedule) {
+		const div = document.createElement('div');
+		div.style.cssText = 'background: #7f1d1d; color: #fca5a5; padding: 1rem; border-radius: 8px; border-left: 4px solid #ef4444;';
+		div.textContent = 'No schedule data available';
+		return div;
 	}
-	
-	// Create view toggle buttons
+
+	const container = document.createElement('div');
+	container.style.cssText = 'padding: 1rem;';
+
+	// Header with title and timestamp
+	const header = document.createElement('div');
+	header.style.cssText = 'background: #1e293b; border-left: 4px solid #60a5fa; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;';
+
+	if (scheduleData.title) {
+		const title = document.createElement('h2');
+		title.textContent = scheduleData.title;
+		title.style.cssText = 'margin: 0 0 0.5rem 0; color: #60a5fa; font-size: 1.5rem;';
+		header.appendChild(title);
+	}
+
+	if (scheduleData.createdAtFormatted) {
+		const timestamp = document.createElement('div');
+		timestamp.textContent = '📅 ' + scheduleData.createdAtFormatted;
+		timestamp.style.cssText = 'color: #94a3b8; font-size: 0.9rem;';
+		header.appendChild(timestamp);
+	}
+
+	container.appendChild(header);
+
+	// View toggle buttons
 	const toggleBar = document.createElement('div');
-	toggleBar.style.cssText = 'display:flex; gap:0.5rem; margin-bottom:1rem;';
-	console.log('🔘 Created toggleBar:', toggleBar);
-	
-	const btnList = document.createElement('button');
-	btnList.textContent = '📋 List View';
-	btnList.className = 'btn';
-	btnList.style.cssText = 'padding:0.5rem 1rem; color:#000; font-weight:600; cursor:pointer;';
-	console.log('🔵 Created btnList:', btnList);
-	
+	toggleBar.style.cssText = 'display: flex; gap: 0.75rem; margin-bottom: 1.5rem;';
+
+	const btnText = document.createElement('button');
+	btnText.textContent = '📋 Text View';
+	btnText.setAttribute('data-view', 'text');
+	btnText.style.cssText = 'padding: 0.6rem 1.2rem; background: #60a5fa; color: #000; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.95rem;';
+
 	const btnGrid = document.createElement('button');
 	btnGrid.textContent = '📊 Grid View';
-	btnGrid.className = 'btn';
-	btnGrid.style.cssText = 'padding:0.5rem 1rem; color:#000; font-weight:600; cursor:pointer;';
-	console.log('🔲 Created btnGrid:', btnGrid);
-	
-	toggleBar.appendChild(btnList);
+	btnGrid.setAttribute('data-view', 'grid');
+	btnGrid.style.cssText = 'padding: 0.6rem 1.2rem; background: #374151; color: #e5e7eb; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.95rem;';
+
+	toggleBar.appendChild(btnText);
 	toggleBar.appendChild(btnGrid);
-	wrapper.appendChild(toggleBar);
-	console.log('✅ Toggle buttons added to wrapper');
-	
-	// Create containers for both views
-	const listContainer = document.createElement('div');
-	const gridContainer = document.createElement('div');
-	gridContainer.style.display = 'none'; // Start with list view
-	
-	wrapper.appendChild(listContainer);
-	wrapper.appendChild(gridContainer);
-	
-	const fmt = m => {
-		const h=Math.floor(m/60),mm=(m%60).toString().padStart(2,'0');
-		const ap=h>=12?'PM':'AM'; const hh=(h%12)||12; return `${hh}:${mm} ${ap}`;
+	container.appendChild(toggleBar);
+
+	// Text view container
+	const textView = buildTextView(scheduleData.schedule);
+	container.appendChild(textView);
+
+	// Grid view container
+	const gridView = buildGridView(scheduleData.schedule);
+	gridView.style.display = 'none';
+	container.appendChild(gridView);
+
+	// Set up toggle functionality
+	btnText.onclick = () => {
+		textView.style.display = 'block';
+		gridView.style.display = 'none';
+		btnText.style.background = '#60a5fa';
+		btnText.style.color = '#000';
+		btnGrid.style.background = '#374151';
+		btnGrid.style.color = '#e5e7eb';
 	};
-	
-	// Build LIST VIEW
-	(DAYS).forEach(d => {
-		const dayTitle = document.createElement('h3'); 
-		dayTitle.textContent = d; 
-		dayTitle.style.cssText = 'margin-top:1rem; margin-bottom:0.5rem; color:#60a5fa;';
-		listContainer.appendChild(dayTitle);
-		const slots = (data.schedule && data.schedule[d]) || [];
-		if (!slots.length) { 
-			const p=document.createElement('div'); 
-			p.textContent='(closed or no slots)'; 
-			p.style.cssText = 'color:#94a3b8; font-style:italic; padding:0.25rem 0;';
-			listContainer.appendChild(p); 
-			return; 
-		}
-		const ul = document.createElement('ul'); 
-		ul.style.listStyle='none'; 
-		ul.style.padding=0;
-		for (const s of slots) {
-			const li=document.createElement('li'); 
-			li.style.cssText = 'padding:.25rem 0; color:#e5e7eb;';
-			const names = (s.assigned||[]).map(a=>a.name||a.email).join(', ') || '(unfilled)';
-			li.textContent = `${fmt(s.start)} - ${fmt(s.end)} — ${names}`; 
-			ul.appendChild(li);
-		}
-		listContainer.appendChild(ul);
-	});
-	
-	// Build GRID VIEW
-	const gridTable = document.createElement('table');
-	gridTable.style.cssText = 'width:100%; border-collapse:collapse; margin-top:1rem;';
-	
-	// Collect all unique time slots across all days
-	const allSlots = new Set();
-	DAYS.forEach(d => {
-		const slots = (data.schedule && data.schedule[d]) || [];
-		slots.forEach(s => {
-			allSlots.add(`${s.start}-${s.end}`);
+
+	btnGrid.onclick = () => {
+		textView.style.display = 'none';
+		gridView.style.display = 'block';
+		btnText.style.background = '#374151';
+		btnText.style.color = '#e5e7eb';
+		btnGrid.style.background = '#60a5fa';
+		btnGrid.style.color = '#000';
+	};
+
+	return container;
+}
+
+function buildTextView(schedule) {
+	const view = document.createElement('div');
+
+	DAYS.forEach(day => {
+		const shifts = schedule[day] || [];
+		if (shifts.length === 0) return;
+
+		const dayHeader = document.createElement('h3');
+		dayHeader.textContent = day;
+		dayHeader.style.cssText = 'margin: 1.5rem 0 0.75rem 0; color: #60a5fa; font-size: 1.25rem; border-bottom: 2px solid #1e293b; padding-bottom: 0.5rem;';
+		view.appendChild(dayHeader);
+
+		const sortedShifts = [...shifts].sort((a, b) => a.start - b.start);
+
+		sortedShifts.forEach(shift => {
+			const item = document.createElement('div');
+			item.style.cssText = 'background: #1e293b; padding: 0.75rem 1rem; border-radius: 6px; border-left: 3px solid #475569; margin-bottom: 0.5rem;';
+
+			const timeSpan = document.createElement('strong');
+			timeSpan.textContent = `${formatTime(shift.start)} - ${formatTime(shift.end)}`;
+			timeSpan.style.cssText = 'color: #e5e7eb; font-size: 1rem;';
+
+			const workerList = document.createElement('div');
+			workerList.style.cssText = 'margin-top: 0.5rem; color: #94a3b8; font-size: 0.9rem;';
+
+			if (!shift.assigned || shift.assigned.length === 0) {
+				workerList.textContent = '⚠️ Unfilled';
+				workerList.style.color = '#fbbf24';
+			} else {
+				shift.assigned.forEach(worker => {
+					const badge = document.createElement('span');
+					badge.textContent = worker.name || worker.email || 'Unknown';
+					badge.style.cssText = `display: inline-block; margin: 0.25rem 0.5rem 0.25rem 0; padding: 0.25rem 0.6rem; background: ${worker.ws ? '#065f46' : '#1e3a8a'}; color: #fff; border-radius: 4px; font-size: 0.85rem;`;
+					if (worker.ws) badge.title = 'Work Study';
+					workerList.appendChild(badge);
+				});
+			}
+
+			item.appendChild(timeSpan);
+			item.appendChild(workerList);
+			view.appendChild(item);
 		});
 	});
-	const sortedSlots = Array.from(allSlots).sort((a,b) => {
+
+	return view;
+}
+
+function buildGridView(schedule) {
+	const view = document.createElement('div');
+	view.style.cssText = 'overflow-x: auto;';
+
+	const allTimeSlots = new Set();
+	DAYS.forEach(day => {
+		const shifts = schedule[day] || [];
+		shifts.forEach(shift => {
+			allTimeSlots.add(`${shift.start}-${shift.end}`);
+		});
+	});
+
+	const sortedSlots = Array.from(allTimeSlots).sort((a, b) => {
 		const [startA] = a.split('-').map(Number);
 		const [startB] = b.split('-').map(Number);
 		return startA - startB;
 	});
-	
-	// build header row
+
+	const table = document.createElement('table');
+	table.style.cssText = 'width: 100%; border-collapse: collapse; background: #0f172a; border-radius: 8px; overflow: hidden;';
+
 	const thead = document.createElement('thead');
 	const headerRow = document.createElement('tr');
+
 	const timeHeader = document.createElement('th');
 	timeHeader.textContent = 'Time';
-	timeHeader.style.cssText = 'padding:0.75rem; border:1px solid #1f2937; background:#1e293b; position:sticky; left:0; z-index:10;';
+	timeHeader.style.cssText = 'padding: 1rem; background: #1e293b; color: #60a5fa; text-align: left; border: 1px solid #1f2937; position: sticky; left: 0; z-index: 10; min-width: 150px;';
 	headerRow.appendChild(timeHeader);
-	
-	DAYS.forEach(d => {
+
+	DAYS.forEach(day => {
 		const th = document.createElement('th');
-		th.textContent = d;
-		th.style.cssText = 'padding:0.75rem; border:1px solid #1f2937; background:#1e293b; text-align:center; min-width:120px;';
+		th.textContent = day;
+		th.style.cssText = 'padding: 1rem; background: #1e293b; color: #60a5fa; text-align: center; border: 1px solid #1f2937; min-width: 140px;';
 		headerRow.appendChild(th);
 	});
+
 	thead.appendChild(headerRow);
-	gridTable.appendChild(thead);
-	
-	// Build body rows
+	table.appendChild(thead);
+
 	const tbody = document.createElement('tbody');
 	sortedSlots.forEach(slotKey => {
 		const [start, end] = slotKey.split('-').map(Number);
 		const row = document.createElement('tr');
-		
+
 		const timeCell = document.createElement('td');
-		timeCell.textContent = `${fmt(start)} - ${fmt(end)}`;
-		timeCell.style.cssText = 'padding:0.5rem 0.75rem; border:1px solid #1f2937; background:#0f172a; font-weight:600; position:sticky; left:0; z-index:5;';
+		timeCell.textContent = `${formatTime(start)} - ${formatTime(end)}`;
+		timeCell.style.cssText = 'padding: 0.75rem 1rem; background: #0f172a; color: #e5e7eb; font-weight: 600; border: 1px solid #1f2937; position: sticky; left: 0; z-index: 5;';
 		row.appendChild(timeCell);
-		
-		DAYS.forEach(d => {
+
+		DAYS.forEach(day => {
 			const td = document.createElement('td');
-			td.style.cssText = 'padding:0.5rem; border:1px solid #1f2937; vertical-align:top; min-width:120px;';
-			
-			const slots = (data.schedule && data.schedule[d]) || [];
-			const matchingSlot = slots.find(s => s.start === start && s.end === end);
-			
-			if (matchingSlot && matchingSlot.assigned && matchingSlot.assigned.length > 0) {
-				const names = matchingSlot.assigned.map(a => {
-					const name = a.name || a.email || 'Unknown';
-					const span = document.createElement('div');
-					span.textContent = name;
-					span.style.cssText = 'padding:0.15rem 0.4rem; margin:0.15rem 0; background:#1e3a8a; border-radius:4px; font-size:0.85rem;';
-					if (a.ws) {
-						span.style.background = '#065f46';
-						span.title = 'Work Study';
-					}
-					return span;
+			td.style.cssText = 'padding: 0.5rem; border: 1px solid #1f2937; vertical-align: top; background: #0b0b0b;';
+
+			const shifts = schedule[day] || [];
+			const matchingShift = shifts.find(s => s.start === start && s.end === end);
+
+			if (matchingShift && matchingShift.assigned && matchingShift.assigned.length > 0) {
+				matchingShift.assigned.forEach(worker => {
+					const badge = document.createElement('div');
+					badge.textContent = worker.name || worker.email || 'Unknown';
+					badge.style.cssText = `padding: 0.3rem 0.5rem; margin: 0.25rem 0; background: ${worker.ws ? '#065f46' : '#1e3a8a'}; color: #fff; border-radius: 4px; font-size: 0.8rem; text-align: center;`;
+					if (worker.ws) badge.title = 'Work Study';
+					td.appendChild(badge);
 				});
-				names.forEach(n => td.appendChild(n));
-			} else if (matchingSlot) {
-				const emptySpan = document.createElement('span');
-				emptySpan.textContent = '(unfilled)';
-				emptySpan.style.cssText = 'color:#64748b; font-style:italic; font-size:0.85rem;';
-				td.appendChild(emptySpan);
+			} else if (matchingShift) {
+				const emptyText = document.createElement('span');
+				emptyText.textContent = '—';
+				emptyText.style.cssText = 'color: #475569; font-style: italic; font-size: 0.85rem;';
+				td.appendChild(emptyText);
 			} else {
-				td.style.background = '#0b0b0b';
+				td.style.background = '#030712';
 			}
-			
+
 			row.appendChild(td);
 		});
-		
+
 		tbody.appendChild(row);
 	});
-	gridTable.appendChild(tbody);
-	gridContainer.appendChild(gridTable);
-	
-	// Toggle functionality
-	btnList.onclick = () => {
-		listContainer.style.display = 'block';
-		gridContainer.style.display = 'none';
-		btnList.style.background = '#60a5fa';
-		btnList.style.color = '#000';
-		btnGrid.style.background = '#475569';
-		btnGrid.style.color = '#fff';
-	};
-	
-	btnGrid.onclick = () => {
-		listContainer.style.display = 'none';
-		gridContainer.style.display = 'block';
-		btnList.style.background = '#475569';
-		btnList.style.color = '#fff';
-		btnGrid.style.background = '#60a5fa';
-		btnGrid.style.color = '#000';
-	};
-	
-	// Set initial button states
-	btnList.style.background = '#60a5fa';
-	btnList.style.color = '#000';
-	btnGrid.style.background = '#475569';
-	btnGrid.style.color = '#fff';
-	console.log('🎨 Initial button states set');
-	console.log('🎁 Returning wrapper with children:', wrapper.children.length);
-	
-	return wrapper;
+
+	table.appendChild(tbody);
+	view.appendChild(table);
+
+	return view;
 }
 
 export default { loadCurrentSchedule, renderSchedule };
-

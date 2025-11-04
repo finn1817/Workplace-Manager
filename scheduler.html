@@ -534,19 +534,11 @@
     };
 
     document.getElementById('btnViewCurrent').onclick = async ()=>{
-      console.log('👁️ View Current Schedule clicked');
       output.innerHTML='';
       if (!db) { output.innerHTML = '<div class="card">Select a workplace first.</div>'; return; }
       const data = await loadCurrentSchedule(db);
-      console.log('📊 Loaded schedule data:', data);
       if (!data) { output.innerHTML = '<div class="card">No current schedule found.</div>'; return; }
-      const titleCard = h('div',{class:'card'}, [h('h3',{},'Current Schedule')]);
-      output.appendChild(titleCard);
-      console.log('📌 Appending title card to output');
-      const scheduleWrapper = renderSchedule(data);
-      console.log('📦 Got schedule wrapper from renderSchedule:', scheduleWrapper);
-      output.appendChild(scheduleWrapper);
-      console.log('✅ Schedule wrapper appended to output. Output children count:', output.children.length);
+      output.appendChild(renderSchedule(data));
     };
 
     (async ()=>{
