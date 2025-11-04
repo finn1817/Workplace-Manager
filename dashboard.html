@@ -127,6 +127,7 @@
 		// Current state
 		let selectedWorkplace = null;
 		let db = null; let storage = null;
+		let isAdmin = false;
 
 		function useWorkplace(id) {
 			selectedWorkplace = id;
@@ -365,13 +366,18 @@
 			}
 		}
 
-		// Admin button
+		// Admin gating
 		(async () => {
 			const manageBtn = document.getElementById('manageWorkersBtn');
-			const isAdmin = await isAdminUser(user.email);
+			try {
+				isAdmin = await isAdminUser(user.email);
+			} catch {}
 			if (isAdmin) {
 				manageBtn.style.display='inline-block';
 				document.getElementById('adminControls').style.display='block';
+			} else {
+				// Hide Generate for non-admins immediately
+				const gen = document.getElementById('generateBtn'); if (gen) gen.style.display='none';
 			}
 		})();
 
@@ -384,6 +390,8 @@
 			const id = card.getAttribute('data-wp');
 			useWorkplace(id);
 			document.getElementById('actions').style.display = 'block';
+			// Show/Hide Generate based on admin status
+			const gen = document.getElementById('generateBtn'); if (gen) gen.style.display = isAdmin ? 'inline-block' : 'none';
 			scheduleDisplay.innerHTML = '<div class="loading">🔄 Loading workplace data...</div>';
 			try {
 				await viewCurrentSchedule();
@@ -398,6 +406,7 @@
 		});
 
 		document.getElementById('generateBtn').addEventListener('click', async ()=>{
+			if (!isAdmin) { scheduleDisplay.innerHTML = '<div class="error">Only admins can generate schedules.</div>'; return; }
 			if (!db) { scheduleDisplay.innerHTML = '<div class="error">Select a workplace first.</div>'; return; }
 			try { await generateSchedule(); } catch (e) { scheduleDisplay.innerHTML = `<div class=error>${e.message}</div>`; }
 		});
