@@ -31,13 +31,11 @@
     import './firebase/config.js';
     import { getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect } from './JS/admin-status.js';
-    import { collection, getDocs, addDoc, updateDoc, doc, setDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+  import { collection, getDocs, addDoc, updateDoc, doc, setDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
-    if (!(await guardAdminOrRedirect())) return;
-
-    const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
-    const status = document.getElementById('status');
-    const content = document.getElementById('content');
+  const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
+  const status = document.getElementById('status');
+  const content = document.getElementById('content');
 
     function defaultHours() {
       return { Monday:{open:'09:00',close:'17:00'}, Tuesday:{open:'09:00',close:'17:00'}, Wednesday:{open:'09:00',close:'17:00'}, Thursday:{open:'09:00',close:'17:00'}, Friday:{open:'09:00',close:'17:00'}, Saturday:{open:null,close:null}, Sunday:{open:null,close:null} };
@@ -86,7 +84,7 @@
       status.textContent = 'Ready';
     }
 
-    render();
+    (async () => { if (await guardAdminOrRedirect()) { render(); } })();
   </script>
 </body>
 </html>

@@ -42,9 +42,7 @@
     import './firebase/config.js';
     import { AUTH_APP, getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect } from './JS/admin-status.js';
-    import { getFirestore, collection, getDocs, query, where, updateDoc, deleteDoc, doc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
-
-    if (!(await guardAdminOrRedirect())) return;
+  import { getFirestore, collection, getDocs, query, where, updateDoc, deleteDoc, doc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
     const AUTH_DB = getFirestore(AUTH_APP);
     const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
@@ -144,8 +142,8 @@
       status.textContent = 'Ready';
     }
 
-    window.addEventListener('hashchange', render);
-    render();
+    window.addEventListener('hashchange', () => { (async () => { if (await guardAdminOrRedirect()) render(); })(); });
+    (async () => { if (await guardAdminOrRedirect()) render(); })();
   </script>
 </body>
 </html>

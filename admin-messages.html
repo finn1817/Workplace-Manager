@@ -32,9 +32,7 @@
     import './firebase/config.js';
     import { getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect } from './JS/admin-status.js';
-    import { collection, getDocs, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
-
-    if (!(await guardAdminOrRedirect())) return;
+  import { collection, getDocs, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
     const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
     const status = document.getElementById('status');
@@ -69,7 +67,7 @@
       status.textContent='Ready';
     }
 
-    render();
+    (async () => { if (await guardAdminOrRedirect()) { render(); } })();
   </script>
 </body>
 </html>
