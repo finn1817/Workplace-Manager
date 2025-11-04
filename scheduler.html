@@ -137,8 +137,8 @@
     import './firebase/config.js';
     import { getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect, isAdminUser } from './JS/admin-status.js';
-    import { collection, getDocs, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
-  import { generateScheduleFromWorkers, generateScheduleInMemory, saveScheduleToDatabase, loadHoursOfOperation, parseAvailabilityString as parseAvail } from './JS/schedule-generation.js';
+    import { collection, getDocs, query, where, addDoc, updateDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+    import * as SCHED from './JS/schedule-generation.js';
     import { loadCurrentSchedule, renderSchedule } from './JS/view-schedule.js';
 
   const status = document.getElementById('status');
@@ -269,17 +269,50 @@
       return win;
     }
     function isAvailableRanges(ranges, start, end){ return (ranges||[]).some(r=> r.start<=start && r.end>=end); }
+    // Prefer parser from module; fallback to local implementation for resilience
+    const parseAvail = SCHED.parseAvailabilityString || function parseAvailabilityString(text) {
+      const abbrToFull = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+      const availability = {};
+      if (!text) return availability;
+      const blocks = text.split(',').map(s => s.trim());
+      blocks.forEach(block => {
+        const match = block.match(/^(\w+)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/i);
+        if (!match) return;
+        const [, dayRaw, startTime, endTime] = match;
+        const dayLower = dayRaw.toLowerCase();
+        let day = abbrToFull[dayRaw];
+        if (!day) {
+          const abbr = dayRaw.slice(0,3);
+          day = abbrToFull[abbr.charAt(0).toUpperCase() + abbr.slice(1).toLowerCase()];
+        }
+        if (!day) {
+          const fullMap = { sunday: 'Sunday', monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday', thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday' };
+          day = fullMap[dayLower];
+        }
+        if (!day) return;
+        function parseTime(t) { const [h,m] = t.split(':').map(Number); return (h*60)+m; }
+        let start = parseTime(startTime); let end = parseTime(endTime);
+        if (end <= start) end = 24*60;
+        if (!availability[day]) availability[day] = [];
+        availability[day].push({ start, end });
+      });
+      return availability;
+    };
+
     async function verifyAvailability(){
       verifyOutput.innerHTML = '<div class="note">Checking…</div>';
   let chosen = getSelectedWorkers(); if (!chosen.length){ verifyOutput.innerHTML='<div class="note">Select workers first.</div>'; verification={checked:true,ok:false,report:[]}; return; }
-      const hours = await loadHoursOfOperation(db); const windows = buildWindows(hours);
+      const hours = await (SCHED.loadHoursOfOperation ? SCHED.loadHoursOfOperation(db) : (async ()=>({
+        Monday:{open:'09:00',close:'17:00'},Tuesday:{open:'09:00',close:'17:00'},Wednesday:{open:'09:00',close:'17:00'},Thursday:{open:'09:00',close:'17:00'},Friday:{open:'09:00',close:'17:00'},Saturday:{open:null,close:null},Sunday:{open:null,close:null}
+      }))());
+      const windows = buildWindows(hours);
       const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
       const rows=[]; let ok=true; const failures=[];
       // Auto-exclude workers with no availability string at all
       chosen = chosen.filter(w => (w['Availability']||w['Days & Times Available']||'').trim().length>0);
       for (const w of chosen){
         const avStr = w['Availability'] || w['Days & Times Available'] || '';
-        const av = parseAvail(avStr);
+  const av = parseAvail(avStr);
         let total=0; let maxBlock=0;
         for (const d of DAYS){ const slots = windows[d]; let run=0; for (const s of slots){ const good = isAvailableRanges(av[d], s.start, s.end); if(good){ total+=1; run+=1; maxBlock=Math.max(maxBlock, run); } else { run=0; } } }
         const ws = (w.workStudy===true || String(w['Work Study']).toLowerCase()==='yes');
@@ -389,7 +422,7 @@
       }
       console.log('📝 Schedule title:', scheduleTitle);
       
-      const opts = await openOptionsModal(); 
+  const opts = await openOptionsModal(); 
       if (!opts) {
         console.log('🚫 User cancelled options modal');
         return;
@@ -398,9 +431,10 @@
       const { maxWorkersPerShift, maxHoursPerWorker, shiftSizes } = opts;
       status.textContent = 'Generating…';
       try {
-        console.log('🔄 Calling generateScheduleFromWorkers...');
-        // Generate but DON'T save yet
-        const doc = await generateScheduleInMemory(db, chosen, { workplaceId: selectedWP, maxWorkersPerShift, maxHoursPerWorker, shiftSizes, scheduleTitle });
+  console.log('🔄 Calling schedule generation...');
+  // Prefer in-memory generation if available; fallback to saving variant
+  const gen = SCHED.generateScheduleInMemory || SCHED.generateScheduleFromWorkers;
+  const doc = await gen(db, chosen, { workplaceId: selectedWP, maxWorkersPerShift, maxHoursPerWorker, shiftSizes, scheduleTitle });
         console.log('✅ Schedule generated successfully:', doc);
         
         // Store pending schedule
@@ -438,7 +472,7 @@
     console.log('✅ Generate button onclick handler registered');
 
     // Save Schedule button handler
-    btnSaveSchedule.onclick = async ()=>{
+  btnSaveSchedule.onclick = async ()=>{
       console.log('💾 Save button clicked');
       if (!pendingSchedule) {
         alert('No schedule to save');
@@ -446,7 +480,17 @@
       }
       try {
         status.textContent = 'Saving schedule...';
-        await saveScheduleToDatabase(db, pendingSchedule);
+        if (SCHED.saveScheduleToDatabase) {
+          await SCHED.saveScheduleToDatabase(db, pendingSchedule);
+        } else {
+          // Fallback: upsert current schedule directly
+          const existing = await getDocs(query(collection(db, 'schedules'), where('isCurrent','==',true)));
+          if (!existing.empty) {
+            await updateDoc(existing.docs[0].ref, pendingSchedule);
+          } else {
+            await addDoc(collection(db, 'schedules'), pendingSchedule);
+          }
+        }
         status.textContent = 'Schedule saved successfully!';
         
         // Show success message
