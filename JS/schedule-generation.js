@@ -98,9 +98,11 @@ export async function generateSchedule(db, { workplaceId }) {
 
 // New: allow caller to provide selected workers subset
 export async function generateScheduleFromWorkers(db, workers, { workplaceId, maxWorkersPerShift=2, maxHoursPerWorker=20, shiftSizes=[5,4,3,2] }={}) {
+	console.log('🚀 generateScheduleFromWorkers called with:', { workplaceId, maxWorkersPerShift, maxHoursPerWorker, shiftSizes, workerCount: workers.length });
 	const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
 	const hours = await loadHoursOfOperation(db);
+	console.log('⏰ Hours of operation loaded:', hours);
 
 	// Normalize availability (support legacy field name as well)
 	workers.forEach(w => {
@@ -256,8 +258,17 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId, ma
 	// Upsert current schedule
 	const scheduleDoc = { isCurrent:true, createdAt:new Date().toISOString(), workplace:workplaceId, schedule: {}, options:{ maxWorkersPerShift, maxHoursPerWorker, shiftSizes } };
 	for (const d of DAYS) scheduleDoc.schedule[d] = windows[d].map(s => ({ start:s.start, end:s.end, assigned:s.assigned }));
+	console.log('📊 Schedule document created:', scheduleDoc);
 	const existing = await getDocs(query(collection(db, 'schedules'), where('isCurrent','==',true)));
-	if (!existing.empty) await updateDoc(existing.docs[0].ref, scheduleDoc); else await addDoc(collection(db, 'schedules'), scheduleDoc);
+	console.log('📋 Existing schedules found:', existing.size);
+	if (!existing.empty) {
+		console.log('✏️ Updating existing schedule:', existing.docs[0].id);
+		await updateDoc(existing.docs[0].ref, scheduleDoc);
+	} else {
+		console.log('➕ Adding new schedule');
+		await addDoc(collection(db, 'schedules'), scheduleDoc);
+	}
+	console.log('✅ Schedule saved successfully');
 	return scheduleDoc;
 }
 

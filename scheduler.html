@@ -119,8 +119,9 @@
     const stepActions = document.getElementById('stepActions');
     const output = document.getElementById('output');
     const workersTableDiv = document.getElementById('workersTable');
-  const btnVerify = document.getElementById('btnVerify');
+    const btnVerify = document.getElementById('btnVerify');
   const btnGenerate = document.getElementById('btnGenerate');
+  console.log('🔍 Button elements found:', { btnVerify, btnGenerate });
 
     let selectedWP = null; let db = null; let isAdmin = false;
     let allWorkers = [];
@@ -275,22 +276,55 @@
     }
 
     document.getElementById('btnGenerate').onclick = async ()=>{
+      console.log('🎯 Generate button clicked');
       output.innerHTML='';
-      if (!isAdmin) { output.innerHTML = '<div class="card">Only admins can generate schedules.</div>'; return; }
-      if (!db || !selectedWP) { output.innerHTML = '<div class="card">Select a workplace first.</div>'; return; }
+      if (!isAdmin) { 
+        console.warn('❌ User is not admin');
+        output.innerHTML = '<div class="card">Only admins can generate schedules.</div>'; 
+        return; 
+      }
+      if (!db || !selectedWP) { 
+        console.warn('❌ No workplace selected');
+        output.innerHTML = '<div class="card">Select a workplace first.</div>'; 
+        return; 
+      }
       const chosen = getSelectedWorkers();
-      if (!chosen.length) { output.innerHTML = '<div class="card">Select at least one worker.</div>'; return; }
-      if (!verification.checked) { await verifyAvailability(); if (!verification.ok) return; }
-      if (!verification.ok) { output.innerHTML = '<div class="card">Fix availability issues before generating (see verification above).</div>'; return; }
-      const opts = await openOptionsModal(); if (!opts) return;
+      console.log('👥 Selected workers:', chosen.length, chosen);
+      if (!chosen.length) { 
+        console.warn('❌ No workers selected');
+        output.innerHTML = '<div class="card">Select at least one worker.</div>'; 
+        return; 
+      }
+      if (!verification.checked) { 
+        console.log('⚠️ Verification not checked, running now...');
+        await verifyAvailability(); 
+        if (!verification.ok) {
+          console.warn('❌ Verification failed');
+          return;
+        }
+      }
+      if (!verification.ok) { 
+        console.warn('❌ Verification not OK');
+        output.innerHTML = '<div class="card">Fix availability issues before generating (see verification above).</div>'; 
+        return; 
+      }
+      const opts = await openOptionsModal(); 
+      if (!opts) {
+        console.log('🚫 User cancelled options modal');
+        return;
+      }
+      console.log('⚙️ Options selected:', opts);
       const { maxWorkersPerShift, maxHoursPerWorker, shiftSizes } = opts;
       status.textContent = 'Generating…';
       try {
+        console.log('🔄 Calling generateScheduleFromWorkers...');
         const doc = await generateScheduleFromWorkers(db, chosen, { workplaceId: selectedWP, maxWorkersPerShift, maxHoursPerWorker, shiftSizes });
+        console.log('✅ Schedule generated successfully:', doc);
         output.innerHTML = '';
         output.appendChild(h('div',{class:'card'}, [h('h3',{},'Schedule Created (Current)'), renderSchedule(doc)]));
         status.textContent = 'Done';
       } catch (e) {
+        console.error('❌ Error generating schedule:', e);
         output.innerHTML = '';
         const card = h('div',{class:'card'});
         const pre = document.createElement('pre');
@@ -302,6 +336,7 @@
         status.textContent = 'Error';
       }
     };
+    console.log('✅ Generate button onclick handler registered');
 
     document.getElementById('btnViewCurrent').onclick = async ()=>{
       output.innerHTML='';
@@ -312,11 +347,22 @@
     };
 
     (async ()=>{
+      console.log('🚀 Initializing scheduler page...');
       if (await guardAdminOrRedirect()) {
-        try { const u = JSON.parse(localStorage.getItem('user')||'{}'); isAdmin = u?.email ? await isAdminUser(u.email) : false; } catch {}
+        try { 
+          const u = JSON.parse(localStorage.getItem('user')||'{}'); 
+          isAdmin = u?.email ? await isAdminUser(u.email) : false; 
+          console.log('👤 User info:', { email: u?.email, isAdmin });
+        } catch (e) {
+          console.error('❌ Error checking admin status:', e);
+        }
         // Non-admins can view current schedule but cannot generate
-        if (!isAdmin) { document.getElementById('btnGenerate').style.display='none'; }
+        if (!isAdmin) { 
+          console.warn('⚠️ User is not admin, hiding generate button');
+          document.getElementById('btnGenerate').style.display='none'; 
+        }
         status.textContent = 'Ready';
+        console.log('✅ Scheduler initialized');
       }
     })();
   </script>
