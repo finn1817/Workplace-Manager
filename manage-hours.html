@@ -31,7 +31,7 @@
     import './firebase/config.js';
     import { getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect } from './JS/admin-status.js';
-  import { collection, getDocs, addDoc, updateDoc, doc, setDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+  import { collection, getDocs, addDoc, updateDoc, doc, setDoc, getDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
   const WP_IDS = ['esports_lounge','esports_arena','it_service_center'];
   const status = document.getElementById('status');
@@ -43,16 +43,27 @@
 
     function h(tag, attrs={}, children=[]) { const e=document.createElement(tag); Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); }); (Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c)); return e; }
 
+    const SETTINGS_DOC_ID = 'general';
+
     async function loadHours(db) {
-      const snap = await getDocs(collection(db,'settings'));
-      let cfg = null, ref=null; snap.forEach(d=>{ const x=d.data(); if (x && x.hours_of_operation) { cfg = x.hours_of_operation; ref = d.ref; }});
-      if (!cfg) cfg = defaultHours();
-      return { cfg, ref };
+      // Prefer single deterministic doc id to avoid multiple settings docs
+      const settingsRef = doc(db, 'settings', SETTINGS_DOC_ID);
+      const snap = await getDoc(settingsRef);
+      if (snap.exists()) {
+        const data = snap.data() || {};
+        const cfg = data.hours_of_operation || defaultHours();
+        return { cfg, ref: settingsRef };
+      }
+      // Fallback: scan existing settings for legacy docs, but write back to deterministic ref
+      const coll = await getDocs(collection(db,'settings'));
+      let cfg = null;
+      coll.forEach(d=>{ const x=d.data(); if (x && x.hours_of_operation && !cfg) cfg = x.hours_of_operation; });
+      return { cfg: cfg || defaultHours(), ref: settingsRef };
     }
 
     async function saveHours(db, ref, cfg) {
-      if (ref) await updateDoc(ref, { hours_of_operation: cfg });
-      else await addDoc(collection(db,'settings'), { hours_of_operation: cfg, updatedAt: new Date().toISOString() });
+      // Always write to deterministic doc id using setDoc (merge) to upsert
+      await setDoc(ref, { hours_of_operation: cfg, updatedAt: new Date().toISOString() }, { merge: true });
     }
 
     function renderEditor(wp, cfg, onSave) {

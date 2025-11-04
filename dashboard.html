@@ -70,7 +70,7 @@
 
 	<script type="module">
 		import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-		import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, query, where, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+		import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, query, where, deleteDoc, getDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 		import { getStorage } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-storage.js';
 		import { getDBForWorkplace, getStorageForWorkplace } from './firebase/config.js';
 		import { isAdminUser } from './JS/admin-status.js';
@@ -108,9 +108,14 @@
 			// Attempt to fetch hours_of_operation if stored in a settings doc, otherwise default 9-5 M-F
 			// In the original schema, hours lived on workplaces collection; with per-DB, store in settings/general
 			try {
-				const settingsSnap = await getDocs(collection(db, 'settings'));
-				let hours = null;
-				settingsSnap.forEach(d => { const data = d.data(); if (data && data.hours_of_operation) hours = data.hours_of_operation; });
+				// Preferred: single deterministic doc id
+				const preferred = await getDoc(doc(db, 'settings', 'general'));
+				let hours = preferred.exists() ? (preferred.data()||{}).hours_of_operation : null;
+				// Fallback: scan legacy docs in settings
+				if (!hours) {
+					const settingsSnap = await getDocs(collection(db, 'settings'));
+					settingsSnap.forEach(d => { const data = d.data(); if (data && data.hours_of_operation) hours = data.hours_of_operation; });
+				}
 				if (!hours) {
 					hours = {
 						Monday: { open: '09:00', close: '17:00' },
