@@ -65,8 +65,41 @@ export function renderSchedule(data) {
 		const h=Math.floor(m/60),mm=(m%60).toString().padStart(2,'0');
 		const ap=h>=12?'PM':'AM'; const hh=(h%12)||12; return `${hh}:${mm} ${ap}`;
 	};
+
+	// Helper: build merged runs (contiguous hours) per day per worker
+	const keyFor = a => a.email || a.name || 'Unknown';
+	function buildRunsForDay(daySlots){
+		const runs = [];
+		const active = new Map(); // key -> { name, email, ws, start, end }
+		for (const s of daySlots) {
+			const present = new Set();
+			for (const a of (s.assigned||[])){
+				const k = keyFor(a);
+				present.add(k);
+				const cur = active.get(k);
+				if (cur && cur.end === s.start) {
+					cur.end = s.end; // extend
+				} else if (!cur) {
+					active.set(k, { name: a.name || a.email || 'Unknown', email: a.email, ws: !!a.ws, start: s.start, end: s.end });
+				} else if (cur && cur.end !== s.start) {
+					// gap: close previous and start new
+					runs.push(cur);
+					active.set(k, { name: a.name || a.email || 'Unknown', email: a.email, ws: !!a.ws, start: s.start, end: s.end });
+				}
+			}
+			// close runs for workers not present in this slot
+			for (const [k, cur] of Array.from(active.entries())){
+				if (!present.has(k)) { runs.push(cur); active.delete(k); }
+			}
+		}
+		// flush remaining
+		for (const cur of active.values()) runs.push(cur);
+		// sort by start time then name for stable rendering
+		runs.sort((a,b)=> a.start!==b.start ? a.start-b.start : (a.name||'').localeCompare(b.name||''));
+		return runs;
+	}
 	
-	// Build LIST VIEW
+	// Build LIST VIEW with merged contiguous runs per worker
 	(DAYS).forEach(d => {
 		const dayTitle = document.createElement('h3'); 
 		dayTitle.textContent = d; 
@@ -80,101 +113,100 @@ export function renderSchedule(data) {
 			listContainer.appendChild(p); 
 			return; 
 		}
-		const ul = document.createElement('ul'); 
-		ul.style.listStyle='none'; 
+		const runs = buildRunsForDay(slots);
+		const ul = document.createElement('ul');
+		ul.style.listStyle='none';
 		ul.style.padding=0;
-		for (const s of slots) {
-			const li=document.createElement('li'); 
-			li.style.padding='.25rem 0';
-			const names = (s.assigned||[]).map(a=>a.name||a.email).join(', ') || '(unfilled)';
-			li.textContent = `${fmt(s.start)} - ${fmt(s.end)} — ${names}`; 
-			ul.appendChild(li);
+		if (runs.length===0){
+			const li=document.createElement('li'); li.style.color='#64748b'; li.style.fontStyle='italic'; li.textContent='(unfilled)'; ul.appendChild(li);
+		} else {
+			for (const r of runs){
+				const li=document.createElement('li');
+				li.style.padding='.25rem 0';
+				li.textContent = `${fmt(r.start)} - ${fmt(r.end)} — ${r.name}`; 
+				if (r.ws) li.style.color = '#86efac';
+				ul.appendChild(li);
+			}
 		}
 		listContainer.appendChild(ul);
 	});
 	
-	// Build GRID VIEW
-	const gridTable = document.createElement('table');
-	gridTable.style.cssText = 'width:100%; border-collapse:collapse; margin-top:1rem;';
-	
+	// Build GRID VIEW (div-based with vertical spanning blocks)
 	// Collect all unique time slots across all days
 	const allSlots = new Set();
 	DAYS.forEach(d => {
 		const slots = (data.schedule && data.schedule[d]) || [];
-		slots.forEach(s => {
-			allSlots.add(`${s.start}-${s.end}`);
-		});
+		slots.forEach(s => { allSlots.add(`${s.start}-${s.end}`); });
 	});
 	const sortedSlots = Array.from(allSlots).sort((a,b) => {
 		const [startA] = a.split('-').map(Number);
 		const [startB] = b.split('-').map(Number);
 		return startA - startB;
 	});
-	
-	// Build header row
-	const thead = document.createElement('thead');
-	const headerRow = document.createElement('tr');
-	const timeHeader = document.createElement('th');
-	timeHeader.textContent = 'Time';
-	timeHeader.style.cssText = 'padding:0.75rem; border:1px solid #1f2937; background:#1e293b; position:sticky; left:0; z-index:10;';
-	headerRow.appendChild(timeHeader);
-	
-	DAYS.forEach(d => {
-		const th = document.createElement('th');
-		th.textContent = d;
-		th.style.cssText = 'padding:0.75rem; border:1px solid #1f2937; background:#1e293b; text-align:center; min-width:120px;';
-		headerRow.appendChild(th);
+	const slotStarts = sortedSlots.map(k=>Number(k.split('-')[0]));
+	const slotEnds = sortedSlots.map(k=>Number(k.split('-')[1]));
+	const startIndex = new Map(slotStarts.map((m,i)=>[m,i]));
+	const endIndex = new Map(slotEnds.map((m,i)=>[m,i+1])); // grid-row end is exclusive
+	const SLOT_H = 44; // px per hour row
+
+	// Build grid container: first row headers, second row bodies
+	const grid = document.createElement('div');
+	grid.style.cssText = 'display:grid; grid-template-columns: 140px repeat(7, 1fr); gap:0; width:100%; margin-top:1rem;';
+
+	function headerCell(text){
+		const c = document.createElement('div');
+		c.textContent = text;
+		c.style.cssText = 'padding:0.75rem; border:1px solid #1f2937; background:#1e293b; text-align:center; font-weight:600;';
+		return c;
+	}
+
+	// Header row
+	grid.appendChild(headerCell('Time'));
+	DAYS.forEach(d=>grid.appendChild(headerCell(d)));
+
+	// Body: time labels column
+	const timeCol = document.createElement('div');
+	timeCol.style.cssText = `border:1px solid #1f2937; background:#0f172a; position:relative; height:${sortedSlots.length*SLOT_H}px;`;
+	sortedSlots.forEach((key,i)=>{
+		const [s,e] = key.split('-').map(Number);
+		const row = document.createElement('div');
+		row.style.cssText = `position:absolute; left:0; right:0; top:${i*SLOT_H}px; height:${SLOT_H}px; border-top:1px solid #1f2937; display:flex; align-items:center; padding:0 0.75rem; font-weight:600;`;
+		row.textContent = `${fmt(s)} - ${fmt(e)}`;
+		timeCol.appendChild(row);
 	});
-	thead.appendChild(headerRow);
-	gridTable.appendChild(thead);
-	
-	// Build body rows
-	const tbody = document.createElement('tbody');
-	sortedSlots.forEach(slotKey => {
-		const [start, end] = slotKey.split('-').map(Number);
-		const row = document.createElement('tr');
-		
-		const timeCell = document.createElement('td');
-		timeCell.textContent = `${fmt(start)} - ${fmt(end)}`;
-		timeCell.style.cssText = 'padding:0.5rem 0.75rem; border:1px solid #1f2937; background:#0f172a; font-weight:600; position:sticky; left:0; z-index:5;';
-		row.appendChild(timeCell);
-		
-		DAYS.forEach(d => {
-			const td = document.createElement('td');
-			td.style.cssText = 'padding:0.5rem; border:1px solid #1f2937; vertical-align:top; min-width:120px;';
-			
-			const slots = (data.schedule && data.schedule[d]) || [];
-			const matchingSlot = slots.find(s => s.start === start && s.end === end);
-			
-			if (matchingSlot && matchingSlot.assigned && matchingSlot.assigned.length > 0) {
-				const names = matchingSlot.assigned.map(a => {
-					const name = a.name || a.email || 'Unknown';
-					const span = document.createElement('div');
-					span.textContent = name;
-					span.style.cssText = 'padding:0.15rem 0.4rem; margin:0.15rem 0; background:#1e3a8a; border-radius:4px; font-size:0.85rem;';
-					if (a.ws) {
-						span.style.background = '#065f46';
-						span.title = 'Work Study';
-					}
-					return span;
-				});
-				names.forEach(n => td.appendChild(n));
-			} else if (matchingSlot) {
-				const emptySpan = document.createElement('span');
-				emptySpan.textContent = '(unfilled)';
-				emptySpan.style.cssText = 'color:#64748b; font-style:italic; font-size:0.85rem;';
-				td.appendChild(emptySpan);
-			} else {
-				td.style.background = '#0b0b0b';
-			}
-			
-			row.appendChild(td);
-		});
-		
-		tbody.appendChild(row);
+	grid.appendChild(timeCol);
+
+	// Build runs per day and render blocks in day columns
+	DAYS.forEach(d=>{
+		const daySlots = (data.schedule && data.schedule[d]) || [];
+		const runs = buildRunsForDay(daySlots);
+		const col = document.createElement('div');
+		col.style.cssText = `border:1px solid #1f2937; background:#0b0b0b; position:relative; height:${sortedSlots.length*SLOT_H}px;`;
+		// background hour lines
+		col.style.backgroundImage = `repeating-linear-gradient(to bottom, rgba(255,255,255,0.05), rgba(255,255,255,0.05) 1px, transparent 1px, transparent ${SLOT_H}px)`;
+		col.style.backgroundSize = `100% ${SLOT_H}px`;
+
+		for (const r of runs){
+			if (!startIndex.has(r.start)) continue; // guard if run start not in global set
+			const si = startIndex.get(r.start);
+			const ei = endIndex.get(r.end) ?? (si + Math.max(1, Math.round((r.end - r.start)/60)));
+			const top = si * SLOT_H + 4;
+			const height = Math.max(1, (ei - si) * SLOT_H - 8);
+			const block = document.createElement('div');
+			block.style.cssText = `position:absolute; left:6px; right:6px; top:${top}px; height:${height}px; border-radius:8px; padding:4px 8px; color:#e5e7eb; display:flex; align-items:center; box-shadow:0 2px 6px rgba(0,0,0,.3); overflow:hidden;`;
+			block.style.background = r.ws ? '#065f46' : '#1e3a8a';
+			block.title = `${r.name} • ${fmt(r.start)} - ${fmt(r.end)}`;
+			const label = document.createElement('div');
+			label.style.cssText = 'font-size:0.85rem; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;';
+			label.textContent = `${r.name}  (${fmt(r.start)} - ${fmt(r.end)})`;
+			block.appendChild(label);
+			col.appendChild(block);
+		}
+
+		grid.appendChild(col);
 	});
-	gridTable.appendChild(tbody);
-	gridContainer.appendChild(gridTable);
+
+	gridContainer.appendChild(grid);
 	
 	// Toggle functionality
 	btnList.onclick = () => {
