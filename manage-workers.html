@@ -48,7 +48,8 @@
 		import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 		import { addWorker, updateWorker, deleteWorker } from './JS/worker-CRUD.js';
 
-		if (!(await guardAdminOrRedirect())) return;
+		// avoid top-level return (breaks with Rocket Loader); gate init via async IIFE
+		const currentUser = JSON.parse(localStorage.getItem('user')||'{}');
 
 		const authDb = getFirestore(AUTH_APP);
 		const tabs = document.querySelectorAll('.tab');
@@ -142,13 +143,34 @@
 			table.appendChild(tbody); return table;
 		}
 
+
+		function yesNoToBool(val, fallback=false) {
+			if (typeof val === 'boolean') return val; if (val==null) return fallback;
+			const s = String(val).toLowerCase(); return s==='yes'||s==='true'||s==='1';
+		}
+
 		async function promptEditWorker(w) {
 			const firstName = prompt('First Name', w['First Name']||''); if (firstName===null) return null;
 			const lastName = prompt('Last Name', w['Last Name']||''); if (lastName===null) return null;
 			const email = prompt('Email', w['Email']||''); if (email===null) return null;
+			const fnum = prompt('F Number', w['F Number']||w['FNumber']||''); if (fnum===null) return null;
 			const type = prompt('Worker Type (Work Study/Regular/Cover)', w['Worker Type']||'Regular'); if (type===null) return null;
-			const availability = prompt('Availability', w['Availability']||''); if (availability===null) return null;
-			return { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability };
+			const workStudy = prompt('Work Study (Yes/No)', w['Work Study']||'No'); if (workStudy===null) return null;
+			const availability = prompt('Days & Times Available (text)', w['Days & Times Available']||w['Availability']||''); if (availability===null) return null;
+			const isPinnedAns = prompt('Pinned (true/false)', (w.isPinned!=null?w.isPinned:false)); if (isPinnedAns===null) return null;
+			return {
+				'First Name': firstName,
+				'Last Name': lastName,
+				'Email': email,
+				'F Number': fnum,
+				'Worker Type': type,
+				'Work Study': workStudy,
+				'Days & Times Available': availability,
+				'Availability': availability,
+				isPinned: yesNoToBool(isPinnedAns, false),
+				updated_at: new Date().toISOString(),
+				updated_by: currentUser?.email||'system'
+			};
 		}
 
 		async function render() {
@@ -166,12 +188,8 @@
 					const add = h('button', { class:'btn btn-primary' }, 'Add Worker');
 					add.onclick = async ()=>{
 						const wp = prompt('Workplace (esports_lounge/esports_arena/it_service_center)', 'esports_lounge'); if (!wp) return;
-						const firstName = prompt('First Name'); if (!firstName) return;
-						const lastName = prompt('Last Name'); if (!lastName) return;
-						const email = prompt('Email'); if (!email) return;
-						const type = prompt('Worker Type (Work Study/Regular/Cover)', 'Regular');
-						const availability = prompt('Availability','');
-						await addWorker(getDBForWorkplace(wp), { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability });
+						const base = await promptEditWorker({}); if (!base) return;
+						await addWorker(getDBForWorkplace(wp), { ...base, created_at: new Date().toISOString(), created_by: currentUser?.email||'system' });
 						await render();
 					};
 					toolbar.append(add);
@@ -186,12 +204,8 @@
 					const toolbar = h('div', { class:'toolbar' });
 					const add = h('button', { class:'btn btn-primary' }, 'Add Worker');
 					add.onclick = async ()=>{
-						const firstName = prompt('First Name'); if (!firstName) return;
-						const lastName = prompt('Last Name'); if (!lastName) return;
-						const email = prompt('Email'); if (!email) return;
-						const type = prompt('Worker Type (Work Study/Regular/Cover)', 'Regular');
-						const availability = prompt('Availability','');
-						await addWorker(getDBForWorkplace(currentTab), { 'First Name': firstName, 'Last Name': lastName, 'Email': email, 'Worker Type': type, 'Availability': availability });
+						const base = await promptEditWorker({}); if (!base) return;
+						await addWorker(getDBForWorkplace(currentTab), { ...base, created_at: new Date().toISOString(), created_by: currentUser?.email||'system' });
 						await render();
 					};
 					toolbar.append(add);
@@ -204,7 +218,8 @@
 			}
 		}
 
-		await render();
+		// Start after admin check to avoid top-level return
+		(async () => { if (await guardAdminOrRedirect()) { await render(); } })();
 	</script>
 </body>
 </html>
