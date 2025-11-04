@@ -238,37 +238,28 @@
 			};
 		}
 
-		function workerMatchesWholeWords(row, q){
+		function workerMatchesSimple(row, q){
 			const query = normalize(q);
 			if (!query) return true;
-			const tokens = query.split(/\s+/).filter(Boolean);
-			if (tokens.length===0) return true;
 			const {first, last} = getNameParts(row);
-			const nameWords = new Set([normalize(first), normalize(last)]);
-			const email = String(row['Email']||'').toLowerCase();
-			const wpTxt = Array.isArray(row.__wps) ? row.__wps.join(',') : (row.__wp||'');
-			const wp = normalize(wpTxt);
-			return tokens.every(tok => nameWords.has(tok) || email.includes(tok) || wp.includes(tok));
+			const name = `${normalize(first)} ${normalize(last)}`.trim();
+			const email = normalize(row['Email']||'');
+			return name.includes(query) || email.includes(query);
 		}
 
-		function userMatchesWholeWords(u, q){
+		function userMatchesSimple(u, q){
 			const query = normalize(q);
 			if (!query) return true;
-			const tokens = query.split(/\s+/).filter(Boolean);
-			if (tokens.length===0) return true;
-			const first = normalize(u.firstName);
-			const last = normalize(u.lastName);
+			const name = `${normalize(u.firstName)} ${normalize(u.lastName)}`.trim();
 			const email = normalize(u.email);
-			const phone = normalize(u.phone);
-			const words = new Set([first, last]);
-			return tokens.every(tok => words.has(tok) || email.includes(tok) || phone.includes(tok));
+			return name.includes(query) || email.includes(query);
 		}
 
 		function filterAndSortWorkers(rows, searchText, nameView){
 			const q = searchText || '';
 			let filtered = rows;
 			if (normalize(q)) {
-				filtered = rows.filter(r=> workerMatchesWholeWords(r, q));
+				filtered = rows.filter(r=> workerMatchesSimple(r, q));
 			}
 			const view = nameView || defaultNameView;
 			filtered.sort((a,b)=>{
@@ -286,7 +277,7 @@
 			const q = searchText || '';
 			let filtered = rows;
 			if (normalize(q)) {
-				filtered = rows.filter(u=> userMatchesWholeWords(u, q));
+				filtered = rows.filter(u=> userMatchesSimple(u, q));
 			}
 			const view = nameView || defaultNameView;
 			filtered.sort((a,b)=>{
@@ -312,10 +303,9 @@
 			search.value = uiState.searchTextByTab[tabKey] || '';
 			search.style.flex = '1 1 260px';
 			search.style.minWidth = '180px';
-			// Don't re-render on every keystroke; commit on Enter, blur, or Search button
-			search.oninput = ()=>{ /* store locally only */ };
+			// Simplified: commit on Enter or Search button only
+			search.oninput = ()=>{};
 			search.onkeyup = (e)=>{ if (e.key==='Enter') commitSearch(tabKey, search.value); };
-			search.onblur = ()=>{ commitSearch(tabKey, search.value); };
 
 			const sortWrap = document.createElement('div'); sortWrap.style.display='flex'; sortWrap.style.gap='.35rem'; sortWrap.style.alignItems='center';
 			const lbl = document.createElement('span'); lbl.style.fontSize='.85rem'; lbl.style.color='#374151'; lbl.textContent='Name view:';
@@ -782,11 +772,15 @@
 			});
 		}
 
+		let renderVersion = 0; // bump each render to avoid stale double-append
+
 		async function render() {
+			const my = ++renderVersion;
 			status.textContent = 'Loading…'; content.innerHTML = '';
 			try {
 				if (currentTab === 'users') {
 					const usersRaw = await fetchUsers();
+					if (my !== renderVersion) return; // stale render guard
 					const q = uiState.searchTextByTab[currentTab] || '';
 					const v = uiState.nameViewByTab[currentTab] || defaultNameView;
 					const users = filterAndSortUsers(usersRaw, q, v);
@@ -796,6 +790,7 @@
 				}
 				if (currentTab === 'all') {
 					const [workers, users] = [await fetchAllWorkers(), await fetchUsers()];
+					if (my !== renderVersion) return;
 					let joined = joinWorkersUsers(workers, users);
 					// Aggregate by email so each person shows once across workplaces
 					joined = aggregateByEmail(joined);
@@ -825,6 +820,7 @@
 				// Workplace-specific tabs
 				if (WP_IDS.includes(currentTab)) {
 					const [rows, users] = [await fetchWorkersFor(currentTab), await fetchUsers()];
+					if (my !== renderVersion) return;
 					let joined = joinWorkersUsers(rows, users);
 					const q = uiState.searchTextByTab[currentTab] || '';
 					const v = uiState.nameViewByTab[currentTab] || defaultNameView;
