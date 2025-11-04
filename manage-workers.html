@@ -20,6 +20,17 @@
 		.pill { display:inline-block; padding:.15rem .45rem; border-radius:9999px; background:#e5e7eb; font-size:.75rem; }
 		.status-ok { background:#bbf7d0; }
 		.status-bad { background:#fecaca; }
+		/* Modal styles */
+		.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:50; }
+		.modal { width: min(720px, 92vw); background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(0,0,0,.25); overflow:hidden; }
+		.modal header { background:#111827; color:#fff; padding:.75rem 1rem; display:flex; align-items:center; justify-content:space-between; }
+		.modal .body { padding:1rem; }
+		.form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem .75rem; }
+		.form-grid label { font-size:.85rem; color:#374151; }
+		.form-grid input, .form-grid select, .form-grid textarea { width:100%; padding:.5rem; border:1px solid #e5e7eb; border-radius:8px; }
+		.form-grid textarea { min-height: 80px; }
+		.wp-group { display:flex; gap:1rem; flex-wrap:wrap; }
+		.modal footer { padding: .75rem 1rem; display:flex; justify-content:flex-end; gap:.5rem; background:#f9fafb; border-top:1px solid #e5e7eb; }
 	</style>
 </head>
 <body>
@@ -41,7 +52,69 @@
 		<div id="content"></div>
 	</div>
 
-	<script type="module">
+	<!-- Modal root -->
+	<div id="mwModal" class="modal-overlay" aria-hidden="true">
+		<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mwModalTitle">
+			<header>
+				<h3 id="mwModalTitle" style="margin:0;font-size:1rem;">Add Worker</h3>
+				<button id="mwCloseBtn" class="btn" style="background:#6b7280;">✕</button>
+			</header>
+			<div class="body">
+				<div id="mwWpRow" style="margin-bottom:.5rem;">
+					<label style="display:block;margin-bottom:.25rem;">Target workplace(s)</label>
+					<div class="wp-group" id="mwWpGroup"></div>
+				</div>
+				<div class="form-grid">
+					<div>
+						<label>First name *</label>
+						<input id="mwFirst" required />
+					</div>
+					<div>
+						<label>Last name *</label>
+						<input id="mwLast" required />
+					</div>
+					<div>
+						<label>Email *</label>
+						<input id="mwEmail" type="email" required />
+					</div>
+					<div>
+						<label>Phone</label>
+						<input id="mwPhone" />
+					</div>
+					<div>
+						<label>F Number</label>
+						<input id="mwFnum" />
+					</div>
+					<div>
+						<label>Worker Type</label>
+						<select id="mwType">
+							<option value="Regular">Regular</option>
+							<option value="Work Study">Work Study</option>
+							<option value="Cover">Cover</option>
+						</select>
+					</div>
+					<div>
+						<label>Work Study (Yes/No)</label>
+						<select id="mwWS"><option>No</option><option>Yes</option></select>
+					</div>
+					<div>
+						<label>Pinned</label>
+						<select id="mwPinned"><option>false</option><option>true</option></select>
+					</div>
+					<div style="grid-column:1/-1;">
+						<label>Days & Times Available</label>
+						<textarea id="mwAvail" placeholder="Mon 09:00-12:00, Tue 10:00-16:00 ..."></textarea>
+					</div>
+				</div>
+			</div>
+			<footer>
+				<button id="mwCancel" class="btn" style="background:#6b7280;">Cancel</button>
+				<button id="mwSave" class="btn btn-primary">Save</button>
+			</footer>
+		</div>
+	</div>
+
+	<script type="module" data-cfasync="false">
 		import './firebase/config.js';
 		import { getDBForWorkplace, AUTH_APP } from './firebase/config.js';
 		import { guardAdminOrRedirect, isAdminUser, setAdmin } from './JS/admin-status.js';
@@ -93,6 +166,11 @@
 		}
 
 		function renderWorkersTable(rows, { allowCrud=true }={}) {
+			if (!rows || rows.length === 0) {
+				const wrap = h('div');
+				wrap.append(h('div', { class:'pill' }, 'No workers added'));
+				return wrap;
+			}
 			const table = h('table');
 			const thead = h('thead', { html: `<tr><th>WP</th><th>First</th><th>Last</th><th>Email</th><th>Type</th><th>User Admin</th><th>Actions</th></tr>` });
 			table.appendChild(thead);
@@ -149,28 +227,73 @@
 			const s = String(val).toLowerCase(); return s==='yes'||s==='true'||s==='1';
 		}
 
-		async function promptEditWorker(w) {
-			const firstName = prompt('First Name', w['First Name']||''); if (firstName===null) return null;
-			const lastName = prompt('Last Name', w['Last Name']||''); if (lastName===null) return null;
-			const email = prompt('Email', w['Email']||''); if (email===null) return null;
-			const fnum = prompt('F Number', w['F Number']||w['FNumber']||''); if (fnum===null) return null;
-			const type = prompt('Worker Type (Work Study/Regular/Cover)', w['Worker Type']||'Regular'); if (type===null) return null;
-			const workStudy = prompt('Work Study (Yes/No)', w['Work Study']||'No'); if (workStudy===null) return null;
-			const availability = prompt('Days & Times Available (text)', w['Days & Times Available']||w['Availability']||''); if (availability===null) return null;
-			const isPinnedAns = prompt('Pinned (true/false)', (w.isPinned!=null?w.isPinned:false)); if (isPinnedAns===null) return null;
-			return {
-				'First Name': firstName,
-				'Last Name': lastName,
-				'Email': email,
-				'F Number': fnum,
-				'Worker Type': type,
-				'Work Study': workStudy,
-				'Days & Times Available': availability,
-				'Availability': availability,
-				isPinned: yesNoToBool(isPinnedAns, false),
-				updated_at: new Date().toISOString(),
-				updated_by: currentUser?.email||'system'
-			};
+		function labelForWp(id){ return id==='esports_lounge'?'Lounge':id==='esports_arena'?'Arena':'IT Service Center'; }
+
+		function openWorkerModal({ mode='add', preselectWps=[], worker={} }={}) {
+			return new Promise(resolve => {
+				const overlay = document.getElementById('mwModal');
+				const title = document.getElementById('mwModalTitle');
+				const wpGroup = document.getElementById('mwWpGroup');
+				const wpRow = document.getElementById('mwWpRow');
+				const el = {
+					first: document.getElementById('mwFirst'),
+					last: document.getElementById('mwLast'),
+					email: document.getElementById('mwEmail'),
+					phone: document.getElementById('mwPhone'),
+					fnum: document.getElementById('mwFnum'),
+					type: document.getElementById('mwType'),
+					ws: document.getElementById('mwWS'),
+					pinned: document.getElementById('mwPinned'),
+					avail: document.getElementById('mwAvail')
+				};
+				// Reset fields
+				el.first.value = worker['First Name']||'';
+				el.last.value = worker['Last Name']||'';
+				el.email.value = worker['Email']||'';
+				el.phone.value = worker['Phone Number']||worker['Phone']||'';
+				el.fnum.value = worker['F Number']||worker['FNumber']||'';
+				el.type.value = worker['Worker Type']||'Regular';
+				el.ws.value = worker['Work Study']||'No';
+				el.pinned.value = String(worker.isPinned!=null?worker.isPinned:false);
+				el.avail.value = worker['Days & Times Available']||worker['Availability']||'';
+				// Build wp checkboxes
+				wpGroup.innerHTML = '';
+				WP_IDS.forEach(id=>{
+					const idAttr = `mw-wp-${id}`;
+					const lab = document.createElement('label'); lab.style.display='flex'; lab.style.alignItems='center'; lab.style.gap='.35rem';
+					const cb = document.createElement('input'); cb.type='checkbox'; cb.value=id; cb.id=idAttr; cb.checked = preselectWps.includes(id);
+					lab.append(cb, document.createTextNode(labelForWp(id))); wpGroup.append(lab);
+				});
+				// If editing, hide wp selection (editing in-place)
+				wpRow.style.display = mode==='edit' ? 'none' : '';
+				title.textContent = mode==='edit' ? 'Edit Worker' : 'Add Worker';
+				// Wire buttons
+				const close = () => { overlay.style.display='none'; resolve(null); };
+				document.getElementById('mwCloseBtn').onclick = close;
+				document.getElementById('mwCancel').onclick = close;
+				document.getElementById('mwSave').onclick = () => {
+					// Validate
+					const first = el.first.value.trim(); const last = el.last.value.trim(); const email = el.email.value.trim();
+					if (!first || !last || !email) { alert('First, Last, and Email are required'); return; }
+					const data = {
+						'First Name': first,
+						'Last Name': last,
+						'Email': email,
+						'Phone Number': el.phone.value.trim(),
+						'Phone': el.phone.value.trim(),
+						'F Number': el.fnum.value.trim(),
+						'Worker Type': el.type.value,
+						'Work Study': el.ws.value,
+						'Days & Times Available': el.avail.value,
+						'Availability': el.avail.value,
+						isPinned: (el.pinned.value === 'true')
+					};
+					const selectedWps = Array.from(wpGroup.querySelectorAll('input[type="checkbox"]:checked')).map(c=>c.value);
+					overlay.style.display='none';
+					resolve({ data, workplaces: selectedWps });
+				};
+				overlay.style.display='flex';
+			});
 		}
 
 		async function render() {
@@ -187,9 +310,12 @@
 					const toolbar = h('div', { class:'toolbar' });
 					const add = h('button', { class:'btn btn-primary' }, 'Add Worker');
 					add.onclick = async ()=>{
-						const wp = prompt('Workplace (esports_lounge/esports_arena/it_service_center)', 'esports_lounge'); if (!wp) return;
-						const base = await promptEditWorker({}); if (!base) return;
-						await addWorker(getDBForWorkplace(wp), { ...base, created_at: new Date().toISOString(), created_by: currentUser?.email||'system' });
+						const result = await openWorkerModal({ mode:'add', preselectWps: WP_IDS });
+						if (!result) return;
+						const { data, workplaces } = result;
+						if (!workplaces || workplaces.length===0) { alert('Choose at least one workplace'); return; }
+						const payload = { ...data, created_at: new Date().toISOString(), created_by: currentUser?.email||'system' };
+						await Promise.all(workplaces.map(wp => addWorker(getDBForWorkplace(wp), payload)));
 						await render();
 					};
 					toolbar.append(add);
@@ -204,8 +330,11 @@
 					const toolbar = h('div', { class:'toolbar' });
 					const add = h('button', { class:'btn btn-primary' }, 'Add Worker');
 					add.onclick = async ()=>{
-						const base = await promptEditWorker({}); if (!base) return;
-						await addWorker(getDBForWorkplace(currentTab), { ...base, created_at: new Date().toISOString(), created_by: currentUser?.email||'system' });
+						const result = await openWorkerModal({ mode:'add', preselectWps:[currentTab] });
+						if (!result) return; const { data, workplaces } = result;
+						const targets = (workplaces && workplaces.length>0) ? workplaces : [currentTab];
+						const payload = { ...data, created_at: new Date().toISOString(), created_by: currentUser?.email||'system' };
+						await Promise.all(targets.map(wp => addWorker(getDBForWorkplace(wp), payload)));
 						await render();
 					};
 					toolbar.append(add);
