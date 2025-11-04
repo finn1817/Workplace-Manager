@@ -6,18 +6,29 @@
 	<title>Workplace Scheduler Dashboard</title>
 	<style>
 		/* Minimal shell; the full styling and UI structure is ported from the original dashboard */
-		body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f8f9fa; color:#333; }
+		body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#0b0b0b; color:#e5e7eb; }
 		.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-		.container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-		.workplace-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap:1rem; }
+		.container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+		.section { margin-bottom: 2rem; }
+		.workplace-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(360px,1fr)); gap:1.25rem; }
 		.workplace-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:white; padding:1.25rem; border-radius:12px; cursor:pointer; text-align:center; }
 		.workplace-card.selected { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
-		.btn { padding: 0.75rem 1.25rem; border:none; border-radius:8px; cursor:pointer; font-weight:500; }
-		.btn-primary { background:#007bff; color:white; }
-		.btn-success { background:#28a745; color:white; }
-		.loading { text-align:center; color:#667eea; padding:1rem; }
-		.error { background:#f8d7da; border:1px solid #f5c6cb; color:#721c24; padding:1rem; border-radius:8px; margin:1rem 0; }
+		/* Unified button look across the page */
+		.btn { padding: 0.7rem 1.1rem; border-radius:10px; cursor:pointer; font-weight:600; border:2px solid #000 !important; background:#60a5fa !important; color:#000 !important; box-shadow:none !important; }
+		.btn:hover { filter: brightness(0.95); }
+		.btn-danger { background:#ef4444 !important; color:#fff !important; border-color:#111 !important; }
+		.btn-muted { background:#94a3b8 !important; color:#111 !important; }
+		.btn-link { background:transparent !important; border-color:transparent !important; color:#60a5fa !important; }
+		.actions-bar { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; }
+		.actions-bar .btn { min-width: 240px; justify-content:center; }
+		.card { background:#0f172a; border:1px solid #1f2937; border-radius:12px; padding:1rem; }
+		.card h3 { margin:0 0 .75rem 0; color:#fff; font-size:1.05rem; }
+		.card .group { display:flex; flex-wrap:wrap; gap:.6rem; }
+		.loading { text-align:center; color:#93c5fd; padding:1rem; }
+		.error { background:#7f1d1d; border:1px solid #dc2626; color:#fecaca; padding:1rem; border-radius:8px; margin:1rem 0; }
 		.info { background:#d1ecf1; border:1px solid #bee5eb; color:#0c5460; padding:1rem; border-radius:8px; margin:1rem 0; }
+		.day-header { margin: 1rem 0 .25rem; }
+		.shift { padding:.4rem .6rem; background:#111827; border:1px solid #1f2937; border-radius:8px; margin:.25rem 0; }
 
 		/* Consistent header button look (black outline, blue background, black text) */
 		.header .header-btn { 
@@ -45,18 +56,31 @@
 	</div>
 	<div id="adminControls" class="container" style="display:none;">
 		<h2>Admin Controls</h2>
-		<div style="display:flex;flex-wrap:wrap;gap:.75rem;">
-			<button class="btn" id="btnManageHours" style="background:#28a745;color:#fff;">🕒 Manage Hours</button>
-			<a class="btn" id="btnAdminManageWorkers" href="manage-workers.html" style="background:#17a2b8;color:#fff;">👥 Manage Workers</a>
-			<button class="btn" id="btnAdminAddWorker" style="background:#28a745;color:#fff;">➕ Add Worker</button>
-			<a class="btn" id="btnImportWorkers" href="manage-workers.html?import=1" style="background:#28a745;color:#fff;">📥 Import Workers</a>
-			<button class="btn" id="btnHourRequests" style="background:#f4c20d;color:#212529;">⏳ Hour Requests</button>
-			<a class="btn" id="btnViewMessages" href="admin-messages.html" style="background:#17a2b8;color:#fff;">💬 View Messages</a>
-			<button class="btn" id="btnTimeOff" style="background:#f4c20d;color:#212529;">🏖️ Time Off Requests</button>
-			<button class="btn" id="btnShiftSwap" style="background:#17a2b8;color:#fff;">🔁 Shift Swap Requests</button>
-			<a class="btn" id="btnEmailChange" href="admin-requests.html#emailchange" style="background:#f4c20d;color:#212529;">✉️ Email Change Requests</a>
-			<button class="btn" id="btnRemoveAllWorkers" style="background:#dc3545;color:#fff;">🗑️ Remove All Workers</button>
-			<button class="btn" id="btnCleanupSchedules" style="background:#dc3545;color:#fff;">🧹 Clean Up Old Schedules</button>
+		<div class="card section">
+			<h3>Worker Management</h3>
+			<div class="group">
+				<button class="btn" id="btnManageHours">🕒 Manage Hours</button>
+				<a class="btn" id="btnAdminManageWorkers" href="manage-workers.html">👥 Manage Workers</a>
+				<button class="btn" id="btnAdminAddWorker">➕ Add Worker</button>
+				<a class="btn" id="btnImportWorkers" href="manage-workers.html?import=1">📥 Import Workers</a>
+			</div>
+		</div>
+		<div class="card section">
+			<h3>Requests</h3>
+			<div class="group">
+				<button class="btn" id="btnHourRequests">⏳ Hour Requests</button>
+				<button class="btn" id="btnTimeOff">🏖️ Time Off Requests</button>
+				<button class="btn" id="btnShiftSwap">🔁 Shift Swap Requests</button>
+				<a class="btn" id="btnEmailChange" href="admin-requests.html#emailchange">✉️ Email Change Requests</a>
+				<a class="btn" id="btnViewMessages" href="admin-messages.html">💬 View Messages</a>
+			</div>
+		</div>
+		<div class="card section">
+			<h3>Maintenance</h3>
+			<div class="group">
+				<button class="btn btn-danger" id="btnRemoveAllWorkers">🗑️ Remove All Workers</button>
+				<button class="btn btn-danger" id="btnCleanupSchedules">🧹 Clean Up Old Schedules</button>
+			</div>
 		</div>
 		<div style="margin-top:.5rem;color:#6c757d;font-size:.9rem;">Note: Database Maintenance and Force Auto-Restore are intentionally omitted.</div>
 	</div>
@@ -74,9 +98,10 @@
 			</div>
 		</div>
 
-		<div id="actions" style="display:none;margin:1rem 0;">
-			<button id="generateBtn" class="btn btn-primary">📅 Generate New Schedule</button>
-			<button id="viewCurrentBtn" class="btn btn-success">👁️ View Current Schedule</button>
+		<div id="actions" class="actions-bar" style="display:none;margin:1rem 0;">
+			<button id="generateBtn" class="btn">📅 Generate New Schedule</button>
+			<button id="viewCurrentBtn" class="btn">👁️ View Current Schedule</button>
+			<button id="showWorkersBtn" class="btn">👥 Show All Workers</button>
 		</div>
 
 		<div id="scheduleDisplay" class="info">💡 Select a workplace above to get started with scheduling and management.</div>
@@ -310,6 +335,34 @@
 			scheduleDisplay.innerHTML = html || '<div class="info">No shifts to display.</div>';
 		}
 
+		// Show all workers for the selected workplace (read-only)
+		function renderWorkersList(workers) {
+			const cols = ['First Name','Last Name','Email','Worker Type'];
+			let html = '<div class="card"><h3>All Workers</h3><div style="overflow:auto">';
+			html += '<table style="width:100%;border-collapse:collapse;">';
+			html += '<thead><tr>' + cols.map(c=>`<th style="text-align:left;border-bottom:1px solid #1f2937;padding:.5rem;">${c}</th>`).join('') + '</tr></thead>';
+			html += '<tbody>' + workers.map(w=>`<tr>
+				<td style="border-bottom:1px solid #1f2937;padding:.5rem;">${w['First Name']||''}</td>
+				<td style="border-bottom:1px solid #1f2937;padding:.5rem;">${w['Last Name']||''}</td>
+				<td style="border-bottom:1px solid #1f2937;padding:.5rem;">${w['Email']||w.email||''}</td>
+				<td style="border-bottom:1px solid #1f2937;padding:.5rem;">${w['Worker Type']||w.type||''}</td>
+			</tr>`).join('') + '</tbody>';
+			html += '</table></div></div>';
+			return html;
+		}
+
+		async function showAllWorkers() {
+			const scheduleDisplay = document.getElementById('scheduleDisplay');
+			if (!db) { scheduleDisplay.innerHTML = '<div class="error">Select a workplace first.</div>'; return; }
+			scheduleDisplay.innerHTML = '<div class="loading">👥 Loading workers...</div>';
+			try {
+				const workers = await fetchWorkers();
+				scheduleDisplay.innerHTML = renderWorkersList(workers);
+			} catch (e) {
+				scheduleDisplay.innerHTML = `<div class="error">${e.message}</div>`;
+			}
+		}
+
 		// Admin button
 		(async () => {
 			const manageBtn = document.getElementById('manageWorkersBtn');
@@ -347,6 +400,7 @@
 			try { await generateSchedule(); } catch (e) { scheduleDisplay.innerHTML = `<div class=error>${e.message}</div>`; }
 		});
 		document.getElementById('viewCurrentBtn').addEventListener('click', viewCurrentSchedule);
+		document.getElementById('showWorkersBtn').addEventListener('click', showAllWorkers);
 
 		// Logout
 		document.getElementById('logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('user'); window.location.href='index.html'; });
