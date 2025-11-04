@@ -104,7 +104,8 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId, ma
 
 	// Segregate workers (Cover concept removed; rely on workStudy boolean only)
 	const isWS = w => (w.workStudy === true || String(w['Work Study']||'').toLowerCase() === 'yes' || String(w['Worker Type']||'').toLowerCase()==='work study');
-	const pool = workers; // include everyone; admin selects who to include on scheduler page
+	// Exclude suspended workers if flagged
+	const pool = (workers||[]).filter(w => w && w.suspended !== true);
 	const workStudy = pool.filter(isWS);
 	const regular = pool.filter(w => !isWS(w));
 
@@ -186,7 +187,7 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId, ma
 	for (const w of regular) tryAssign(w, targetPerRegular);
 
 	// Upsert current schedule
-	const scheduleDoc = { isCurrent:true, createdAt:new Date().toISOString(), workplace:workplaceId, schedule: {} };
+	const scheduleDoc = { isCurrent:true, createdAt:new Date().toISOString(), workplace:workplaceId, schedule: {}, options:{ maxWorkersPerShift, maxHoursPerWorker, shiftSizes } };
 	for (const d of DAYS) scheduleDoc.schedule[d] = windows[d].map(s => ({ start:s.start, end:s.end, assigned:s.assigned }));
 	const existing = await getDocs(query(collection(db, 'schedules'), where('isCurrent','==',true)));
 	if (!existing.empty) await updateDoc(existing.docs[0].ref, scheduleDoc); else await addDoc(collection(db, 'schedules'), scheduleDoc);

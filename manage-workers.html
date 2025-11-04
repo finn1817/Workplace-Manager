@@ -96,6 +96,10 @@
 						<label>Pinned</label>
 						<select id="mwPinned"><option>false</option><option>true</option></select>
 					</div>
+					<div>
+						<label>Suspended</label>
+						<select id="mwSuspended"><option>false</option><option>true</option></select>
+					</div>
 					<div style="grid-column:1/-1;">
 						<label>Availability</label>
 						<!-- Mode toggle -->
@@ -435,6 +439,7 @@
 					phone: document.getElementById('mwPhone'),
 					fnum: document.getElementById('mwFnum'),
 					ws: document.getElementById('mwWS'),
+					suspended: document.getElementById('mwSuspended'),
 					pinned: document.getElementById('mwPinned'),
 					avail: document.getElementById('mwAvail'),
 					availEditor: document.getElementById('mwAvailEditor'),
@@ -623,6 +628,7 @@
 				// Prefill Work Study based on canonical boolean or legacy fields
 				const _wsPrefill = (worker.workStudy===true) || String(worker['Work Study']||'').toLowerCase()==='yes' || String(worker['Worker Type']||'').toLowerCase()==='work study';
 				el.ws.value = _wsPrefill ? 'Yes' : 'No';
+				el.suspended.value = String(worker.suspended===true);
 				el.pinned.value = String(worker.isPinned!=null?worker.isPinned:false);
 				el.avail.value = worker['Days & Times Available']||worker['Availability']||'';
 
@@ -731,7 +737,8 @@
 						'Work Study': el.ws.value,
 						workStudy: (el.ws.value === 'Yes'),
 							'Availability': availability,
-						isPinned: (el.pinned.value === 'true')
+						isPinned: (el.pinned.value === 'true'),
+						suspended: (el.suspended.value === 'true')
 					};
 						const selectedWps = Array.from(wpGroup.querySelectorAll('input[type="checkbox"]:checked')).map(c=>c.value);
 						// Per-workplace availability mapping (add mode)

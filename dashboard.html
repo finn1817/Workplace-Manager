@@ -110,6 +110,36 @@
 		<div id="scheduleDisplay" class="info">💡 Select a workplace above to get started with scheduling and management.</div>
 	</div>
 
+	<!-- Generation Options Modal -->
+	<div id="genOptsOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center;">
+		<div style="background:#0f172a;border:1px solid #1f2937;color:#e5e7eb;border-radius:12px;min-width:320px;max-width:92vw;padding:1rem;">
+			<h3 style="margin:.25rem 0 1rem;">Generation Options</h3>
+			<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;">
+				<label>Max workers/shift
+					<select id="optCap" style="width:100%;padding:.5rem;border-radius:8px;border:1px solid #334155;background:#0b0b0b;color:#e5e7eb;">
+						<option>1</option><option selected>2</option><option>3</option><option>4</option>
+					</select>
+				</label>
+				<label>Max hours/worker
+					<select id="optMaxH" style="width:100%;padding:.5rem;border-radius:8px;border:1px solid #334155;background:#0b0b0b;color:#e5e7eb;">
+						<option>10</option><option>15</option><option selected>20</option><option>25</option><option>30</option>
+					</select>
+				</label>
+				<label style="grid-column:1/-1;">Shift sizes preset
+					<select id="optPreset" style="width:100%;padding:.5rem;border-radius:8px;border:1px solid #334155;background:#0b0b0b;color:#e5e7eb;">
+						<option value="5,4,3,2" selected>5,4,3,2</option>
+						<option value="4,3,2">4,3,2</option>
+						<option value="3,2">3,2</option>
+					</select>
+				</label>
+			</div>
+			<div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">
+				<button id="optCancel" class="btn btn-muted">Cancel</button>
+				<button id="optUse" class="btn">Use These</button>
+			</div>
+		</div>
+	</div>
+
 	<script type="module">
 		import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 		import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, query, where, deleteDoc, getDoc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
@@ -223,21 +253,35 @@
 			return slots.some(s => s.start <= startMin && s.end >= endMin);
 		}
 
-		// Core schedule generation — delegate to shared generator with prompts
+		// Core schedule generation — delegate to shared generator
 		import { generateScheduleFromWorkers } from './JS/schedule-generation.js';
 
 		async function generateSchedule() {
 			const scheduleDisplay = document.getElementById('scheduleDisplay');
 			scheduleDisplay.innerHTML = '<div class="loading">🚀 Generating schedule...</div>';
 
-			const workers = await fetchWorkers();
-			// Prompts for tunables
-			let cap = prompt('Max workers per shift?', '2');
-			let maxH = prompt('Max hours per worker?', '20');
-			let sizesStr = prompt('Shift sizes to use (comma-separated from 2-5)', '5,4,3,2');
-			const maxWorkersPerShift = Math.max(1, parseInt(cap||'2',10)||2);
-			const maxHoursPerWorker = Math.max(1, parseInt(maxH||'20',10)||20);
-			const shiftSizes = (sizesStr||'5,4,3,2').split(',').map(s=>parseInt(s.trim(),10)).filter(n=>n>=1&&n<=12);
+			const all = await fetchWorkers();
+			const workers = all.filter(w=> w.suspended !== true);
+			function openOptionsModal(){
+				return new Promise(resolve=>{
+					const ov = document.getElementById('genOptsOverlay');
+					const capSel = document.getElementById('optCap');
+					const maxHSel = document.getElementById('optMaxH');
+					const presetSel = document.getElementById('optPreset');
+					ov.style.display='flex';
+					const close = () => { ov.style.display='none'; };
+					document.getElementById('optCancel').onclick = ()=>{ close(); resolve(null); };
+					document.getElementById('optUse').onclick = ()=>{
+						const maxWorkersPerShift = parseInt(capSel.value,10)||2;
+						const maxHoursPerWorker = parseInt(maxHSel.value,10)||20;
+						const shiftSizes = presetSel.value.split(',').map(n=>parseInt(n,10)).filter(Boolean);
+						close(); resolve({ maxWorkersPerShift, maxHoursPerWorker, shiftSizes });
+					};
+				});
+			}
+
+			const opts = await openOptionsModal(); if (!opts) { scheduleDisplay.innerHTML = '<div class="info">Generation cancelled.</div>'; return; }
+			const { maxWorkersPerShift, maxHoursPerWorker, shiftSizes } = opts;
 
 			const scheduleDoc = await generateScheduleFromWorkers(db, workers, { workplaceId: selectedWorkplace, maxWorkersPerShift, maxHoursPerWorker, shiftSizes });
 

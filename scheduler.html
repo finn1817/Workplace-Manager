@@ -64,6 +64,36 @@
     <div id="output" class="section"></div>
   </div>
 
+  <!-- Generation Options Modal -->
+  <div id="genOptsOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center;">
+    <div style="background:#0f172a;border:1px solid #1f2937;color:#e5e7eb;border-radius:12px;min-width:320px;max-width:92vw;padding:1rem;">
+      <h3 style="margin:.25rem 0 1rem;">Generation Options</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;">
+        <label>Max workers/shift
+          <select id="optCap" style="width:100%;padding:.5rem;border-radius:8px;border:1px solid #334155;background:#0b0b0b;color:#e5e7eb;">
+            <option>1</option><option selected>2</option><option>3</option><option>4</option>
+          </select>
+        </label>
+        <label>Max hours/worker
+          <select id="optMaxH" style="width:100%;padding:.5rem;border-radius:8px;border:1px solid #334155;background:#0b0b0b;color:#e5e7eb;">
+            <option>10</option><option>15</option><option selected>20</option><option>25</option><option>30</option>
+          </select>
+        </label>
+        <label style="grid-column:1/-1;">Shift sizes preset
+          <select id="optPreset" style="width:100%;padding:.5rem;border-radius:8px;border:1px solid #334155;background:#0b0b0b;color:#e5e7eb;">
+            <option value="5,4,3,2" selected>5,4,3,2</option>
+            <option value="4,3,2">4,3,2</option>
+            <option value="3,2">3,2</option>
+          </select>
+        </label>
+      </div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button id="optCancel" class="btn" style="background:#475569;">Cancel</button>
+        <button id="optUse" class="btn">Use These</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     import './firebase/config.js';
     import { getDBForWorkplace } from './firebase/config.js';
@@ -117,7 +147,7 @@
     async function loadWorkers() {
       status.textContent = 'Loading workers…';
       const snap = await getDocs(collection(db, 'workers'));
-      allWorkers = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+      allWorkers = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(w => w.suspended !== true);
       renderWorkersPicklist(allWorkers);
       status.textContent = `Loaded ${allWorkers.length} workers`;
       stepWorkers.style.display='block'; stepActions.style.display='flex';
@@ -151,19 +181,32 @@
       workersTableDiv.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=false);
     };
 
+    function openOptionsModal(){
+      return new Promise(resolve=>{
+        const ov = document.getElementById('genOptsOverlay');
+        const capSel = document.getElementById('optCap');
+        const maxHSel = document.getElementById('optMaxH');
+        const presetSel = document.getElementById('optPreset');
+        ov.style.display='flex';
+        const close = () => { ov.style.display='none'; };
+        document.getElementById('optCancel').onclick = ()=>{ close(); resolve(null); };
+        document.getElementById('optUse').onclick = ()=>{
+          const maxWorkersPerShift = parseInt(capSel.value,10)||2;
+          const maxHoursPerWorker = parseInt(maxHSel.value,10)||20;
+          const shiftSizes = presetSel.value.split(',').map(n=>parseInt(n,10)).filter(Boolean);
+          close(); resolve({ maxWorkersPerShift, maxHoursPerWorker, shiftSizes });
+        };
+      });
+    }
+
     document.getElementById('btnGenerate').onclick = async ()=>{
       output.innerHTML='';
       if (!isAdmin) { output.innerHTML = '<div class="card">Only admins can generate schedules.</div>'; return; }
       if (!db || !selectedWP) { output.innerHTML = '<div class="card">Select a workplace first.</div>'; return; }
       const chosen = getSelectedWorkers();
       if (!chosen.length) { output.innerHTML = '<div class="card">Select at least one worker.</div>'; return; }
-      // Pre-generation tunables
-      let cap = prompt('Max workers per shift?', '2');
-      let maxH = prompt('Max hours per worker?', '20');
-      let sizesStr = prompt('Shift sizes to use (comma-separated from 2-5)', '5,4,3,2');
-      const maxWorkersPerShift = Math.max(1, parseInt(cap||'2',10)||2);
-      const maxHoursPerWorker = Math.max(1, parseInt(maxH||'20',10)||20);
-      const shiftSizes = (sizesStr||'5,4,3,2').split(',').map(s=>parseInt(s.trim(),10)).filter(n=>n>=1&&n<=12);
+      const opts = await openOptionsModal(); if (!opts) return;
+      const { maxWorkersPerShift, maxHoursPerWorker, shiftSizes } = opts;
       status.textContent = 'Generating…';
       try {
         const doc = await generateScheduleFromWorkers(db, chosen, { workplaceId: selectedWP, maxWorkersPerShift, maxHoursPerWorker, shiftSizes });
