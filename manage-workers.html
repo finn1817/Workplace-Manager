@@ -388,42 +388,40 @@
 					cell.append(be, bd);
 				}
 				tbody.appendChild(tr);
-			}
-			table.appendChild(tbody);
-			return table;
-		}
 
-		function renderUsersTable(rows) {
-			const table = h('table');
-			table.appendChild(h('thead',{ html:`<tr><th>First</th><th>Last</th><th>Email</th><th>Phone</th><th>Admin</th><th>Actions</th></tr>` }));
 			const tbody = h('tbody');
 			rows.forEach(u=>{
-				const tr = h('tr'); const isA = (u.isAdmin===1||u.isAdmin===true);
-				tr.innerHTML = `
-					<td>${u.firstName||''}</td>
-					<td>${u.lastName||''}</td>
-					<td>${u.email||''}</td>
-					<td>${u.phone||''}</td>
-					<td><span class="pill ${isA?'status-ok':'status-bad'}">${isA?'Admin':'User'}</span></td>
-					<td></td>`;
-				const cell = tr.querySelector('td:last-child');
-				const toggle = h('button', { class:'btn' }, isA ? 'Revoke Admin' : 'Make Admin');
-				toggle.onclick = async ()=>{ await setAdmin(u.email, !isA); await render(); };
-				cell.append(toggle);
+
 				tbody.appendChild(tr);
 			});
-			table.appendChild(tbody); return table;
-		}
+			}
+						table.appendChild(tbody);
+						return table;
+					}
 
+					function renderUsersTable(rows) {
+						const table = h('table');
+						table.appendChild(h('thead',{ html:`<tr><th>First</th><th>Last</th><th>Email</th><th>Phone</th><th>Admin</th><th>Actions</th></tr>` }));
+						const tbody = h('tbody');
+						rows.forEach(u=>{
+							const tr = h('tr'); const isA = (u.isAdmin===1||u.isAdmin===true);
+							tr.innerHTML = `
+								<td>${u.firstName||''}</td>
+								<td>${u.lastName||''}</td>
+								<td>${u.email||''}</td>
+								<td>${u.phone||''}</td>
+								<td><span class="pill ${isA?'status-ok':'status-bad'}">${isA?'Admin':'User'}</span></td>
+								<td></td>`;
+							const cell = tr.querySelector('td:last-child');
+							const toggle = h('button', { class:'btn' }, isA ? 'Revoke Admin' : 'Make Admin');
+							toggle.onclick = async ()=>{ await setAdmin(u.email, !isA); await render(); };
+							cell.append(toggle);
+							tbody.appendChild(tr);
+						});
+						table.appendChild(tbody); return table;
+					}
 
-		function yesNoToBool(val, fallback=false) {
-			if (typeof val === 'boolean') return val; if (val==null) return fallback;
-			const s = String(val).toLowerCase(); return s==='yes'||s==='true'||s==='1';
-		}
-
-		function labelForWp(id){ return id==='esports_lounge'?'Lounge':id==='esports_arena'?'Arena':'IT Service Center'; }
-
-		function openWorkerModal({ mode='add', preselectWps=[], worker={}, forcePerWpEditors=false, perWpPrefill=null }={}) {
+					function openWorkerModal({ mode='add', preselectWps=[], worker={}, forcePerWpEditors=false, perWpPrefill=null }={}) {
 			return new Promise(resolve => {
 				const overlay = document.getElementById('mwModal');
 				const title = document.getElementById('mwModalTitle');
@@ -784,8 +782,11 @@
 					const q = uiState.searchTextByTab[currentTab] || '';
 					const v = uiState.nameViewByTab[currentTab] || defaultNameView;
 					const users = filterAndSortUsers(usersRaw, q, v);
-					content.appendChild(buildSearchAndSortToolbar({ tabKey: currentTab }));
-					content.appendChild(renderUsersTable(users));
+					const frag = document.createDocumentFragment();
+					frag.appendChild(buildSearchAndSortToolbar({ tabKey: currentTab }));
+					frag.appendChild(renderUsersTable(users));
+					if (my !== renderVersion) return; // final guard before DOM commit
+					content.replaceChildren(frag);
 					status.textContent = `Users: ${users.length}`; return;
 				}
 				if (currentTab === 'all') {
@@ -813,8 +814,11 @@
 						}
 						await render();
 					};
-					content.appendChild(buildSearchAndSortToolbar({ onAdd: addHandler, tabKey: currentTab }));
-					content.appendChild(renderWorkersTable(joined, { allowCrud:false, showAllEdit:true }));
+					const fragAll = document.createDocumentFragment();
+					fragAll.appendChild(buildSearchAndSortToolbar({ onAdd: addHandler, tabKey: currentTab }));
+					fragAll.appendChild(renderWorkersTable(joined, { allowCrud:false, showAllEdit:true }));
+					if (my !== renderVersion) return; // final guard before DOM commit
+					content.replaceChildren(fragAll);
 					status.textContent = `All workers: ${joined.length}`; return;
 				}
 				// Workplace-specific tabs
@@ -839,8 +843,11 @@
 						}
 						await render();
 					};
-					content.appendChild(buildSearchAndSortToolbar({ onAdd: addHandler, tabKey: currentTab }));
-					content.appendChild(renderWorkersTable(joined));
+					const fragWp = document.createDocumentFragment();
+					fragWp.appendChild(buildSearchAndSortToolbar({ onAdd: addHandler, tabKey: currentTab }));
+					fragWp.appendChild(renderWorkersTable(joined));
+					if (my !== renderVersion) return; // final guard before DOM commit
+					content.replaceChildren(fragWp);
 					status.textContent = `${currentTab} workers: ${joined.length}`; return;
 				}
 			} catch (e) {
