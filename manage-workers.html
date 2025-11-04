@@ -238,6 +238,16 @@
 			};
 		}
 
+		// Human-friendly labels for workplace IDs
+		function labelForWp(id){
+			switch(id){
+				case 'esports_lounge': return 'Lounge';
+				case 'esports_arena': return 'Arena';
+				case 'it_service_center': return 'IT Service Center';
+				default: return id || '';
+			}
+		}
+
 		function workerMatchesSimple(row, q){
 			const query = normalize(q);
 			if (!query) return true;
