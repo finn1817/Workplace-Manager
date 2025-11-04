@@ -390,15 +390,10 @@
 			scheduleDisplay.innerHTML = '<div class="info">💡 Select a workplace above to get started with scheduling and management.</div>';
 		});
 
-		document.getElementById('generateBtn').addEventListener('click', async ()=>{
-			if (!isAdmin) { scheduleDisplay.innerHTML = '<div class="error">Only admins can generate schedules.</div>'; return; }
-			if (!db) { scheduleDisplay.innerHTML = '<div class="error">Select a workplace first.</div>'; return; }
-			try { await generateSchedule(); } catch (e) {
-				const div = document.createElement('div'); div.className='error';
-				const pre = document.createElement('pre'); pre.style.whiteSpace='pre-wrap'; pre.style.margin='0';
-				pre.textContent = String(e && e.message ? e.message : e);
-				div.appendChild(pre); scheduleDisplay.innerHTML=''; scheduleDisplay.appendChild(div);
-			}
+		document.getElementById('generateBtn').addEventListener('click', ()=>{
+			// Redirect to the guided Scheduler flow and carry the currently selected WP, if any
+			const qp = selectedWorkplace ? `?wp=${encodeURIComponent(selectedWorkplace)}` : '';
+			window.location.href = `scheduler.html${qp}`;
 		});
 		document.getElementById('viewCurrentBtn').addEventListener('click', viewCurrentSchedule);
 		document.getElementById('showWorkersBtn').addEventListener('click', showAllWorkers);

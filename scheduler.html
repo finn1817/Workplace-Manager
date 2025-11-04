@@ -56,8 +56,17 @@
       <div id="workersTable"></div>
     </div>
 
+    <div id="verifySection" class="section card" style="display:none;">
+      <h3>3) Verify Availability</h3>
+      <div class="note">We’ll check each selected worker against hours of operation. Work Study must have a contiguous block ≥ 5 hours.</div>
+      <div class="actions" style="margin:.5rem 0;">
+        <button id="btnVerify" class="btn">✅ Check availability</button>
+      </div>
+      <div id="verifyOutput"></div>
+    </div>
+
     <div id="stepActions" class="section actions" style="display:none;">
-      <button id="btnGenerate" class="btn">📅 Generate Schedule</button>
+      <button id="btnGenerate" class="btn" disabled>📅 Generate Schedule</button>
       <button id="btnViewCurrent" class="btn">👁️ View Current Schedule</button>
     </div>
 
@@ -99,15 +108,19 @@
     import { getDBForWorkplace } from './firebase/config.js';
     import { guardAdminOrRedirect, isAdminUser } from './JS/admin-status.js';
     import { collection, getDocs, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
-  import { generateScheduleFromWorkers, loadHoursOfOperation } from './JS/schedule-generation.js';
+  import { generateScheduleFromWorkers, loadHoursOfOperation, parseAvailabilityString as parseAvail } from './JS/schedule-generation.js';
     import { loadCurrentSchedule, renderSchedule } from './JS/view-schedule.js';
 
-    const status = document.getElementById('status');
+  const status = document.getElementById('status');
     const wpGrid = document.getElementById('wpGrid');
     const stepWorkers = document.getElementById('stepWorkers');
+  const verifySection = document.getElementById('verifySection');
+  const verifyOutput = document.getElementById('verifyOutput');
     const stepActions = document.getElementById('stepActions');
     const output = document.getElementById('output');
     const workersTableDiv = document.getElementById('workersTable');
+  const btnVerify = document.getElementById('btnVerify');
+  const btnGenerate = document.getElementById('btnGenerate');
 
     let selectedWP = null; let db = null; let isAdmin = false;
     let allWorkers = [];
@@ -134,6 +147,7 @@
           h('td',{}, w['Availability']||w['Days & Times Available']||'')
         );
         tbody.append(row);
+        cb.addEventListener('change', ()=>{ verification.checked=false; btnGenerate.disabled=true; });
       });
       table.append(thead, tbody);
       workersTableDiv.innerHTML=''; workersTableDiv.append(table);
@@ -150,7 +164,8 @@
       allWorkers = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(w => w.suspended !== true);
       renderWorkersPicklist(allWorkers);
       status.textContent = `Loaded ${allWorkers.length} workers`;
-      stepWorkers.style.display='block'; stepActions.style.display='flex';
+      stepWorkers.style.display='block'; verifySection.style.display='block'; stepActions.style.display='flex';
+      btnGenerate.disabled = true; // require verify first
     }
 
     wpGrid.addEventListener('click', async (e)=>{
@@ -162,6 +177,14 @@
       output.innerHTML='';
       await loadWorkers();
     });
+
+    // Allow deep-link: ?wp=esports_lounge
+    (function autoSelectFromQuery(){
+      const wp = new URLSearchParams(location.search).get('wp');
+      if (!wp) return;
+      const tile = wpGrid.querySelector(`.tile[data-wp="${wp}"]`);
+      if (tile) tile.click();
+    })();
 
     document.getElementById('selectAllWS').onclick = ()=>{
       workersTableDiv.querySelectorAll('tbody tr').forEach(tr=>{
@@ -179,7 +202,55 @@
     };
     document.getElementById('clearAll').onclick = ()=>{
       workersTableDiv.querySelectorAll('input[type="checkbox"]').forEach(cb=>cb.checked=false);
+      verification.checked=false; btnGenerate.disabled=true;
     };
+
+    // Availability verification
+    let verification = { checked:false, ok:false, report:[] };
+    function parseTimeToMinutes(s){
+      if (!s || typeof s !== 'string') return null; const t=s.trim();
+      let m=t.match(/^([01]?\d|2[0-3]):([0-5]\d)$/); if (m) return parseInt(m[1],10)*60+parseInt(m[2],10);
+      m=t.match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/); if (m){ let hh=parseInt(m[1],10)||0; const mm=parseInt(m[2],10)||0; const ap=m[3].toLowerCase(); if(ap==='pm'&&hh<12) hh+=12; if(ap==='am'&&hh===12) hh=0; return hh*60+mm; }
+      return null;
+    }
+    function buildWindows(hours){
+      const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+      const win={};
+      for (const d of DAYS){ const o=hours[d]; if(!o||!o.open||!o.close){ win[d]=[]; continue; }
+        const start=parseTimeToMinutes(String(o.open)); const end=parseTimeToMinutes(String(o.close));
+        if(start==null||end==null||!(end>start)){ win[d]=[]; continue; }
+        const slots=[]; for(let t=start;t<end;t+=60){ slots.push({start:t,end:Math.min(t+60,end)}); } win[d]=slots; }
+      return win;
+    }
+    function isAvailableRanges(ranges, start, end){ return (ranges||[]).some(r=> r.start<=start && r.end>=end); }
+    async function verifyAvailability(){
+      verifyOutput.innerHTML = '<div class="note">Checking…</div>';
+      const chosen = getSelectedWorkers(); if (!chosen.length){ verifyOutput.innerHTML='<div class="note">Select workers first.</div>'; verification={checked:true,ok:false,report:[]}; btnGenerate.disabled=true; return; }
+      const hours = await loadHoursOfOperation(db); const windows = buildWindows(hours);
+      const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+      const rows=[]; let ok=true; const failures=[];
+      for (const w of chosen){
+        const avStr = w['Availability'] || w['Days & Times Available'] || '';
+        const av = parseAvail(avStr);
+        let total=0; let maxBlock=0;
+        for (const d of DAYS){ const slots = windows[d]; let run=0; for (const s of slots){ const good = isAvailableRanges(av[d], s.start, s.end); if(good){ total+=1; run+=1; maxBlock=Math.max(maxBlock, run); } else { run=0; } } }
+        const ws = (w.workStudy===true || String(w['Work Study']).toLowerCase()==='yes');
+        const pass = ws ? (maxBlock>=5) : (total>0);
+        rows.push({ w, ws, total, maxBlock, pass });
+        if (!pass) failures.push({ name:`${w['First Name']||''} ${w['Last Name']||''}`.trim(), ws, total, maxBlock });
+        ok = ok && pass;
+      }
+      const tbl=document.createElement('table'); tbl.style.width='100%'; tbl.style.borderCollapse='collapse';
+      const head=document.createElement('thead'); head.innerHTML='<tr><th>Name</th><th>WS</th><th>Total hrs (open)</th><th>Max contiguous</th><th>Status</th></tr>'; tbl.appendChild(head);
+      const body=document.createElement('tbody');
+      rows.forEach(r=>{ const tr=document.createElement('tr'); const status=r.pass?'OK':'Needs Fix'; tr.innerHTML = `<td>${r.w['First Name']||''} ${r.w['Last Name']||''}</td><td>${r.ws?'Yes':'No'}</td><td>${r.total}</td><td>${r.maxBlock}</td><td>${status}</td>`; body.appendChild(tr); });
+      tbl.appendChild(body);
+      verifyOutput.innerHTML=''; verifyOutput.appendChild(tbl);
+      verification = { checked:true, ok, report:rows };
+      btnGenerate.disabled = !ok;
+      if (!ok) status.textContent = 'Verification failed — fix workers shown as "Needs Fix"'; else status.textContent = 'Verification passed — ready to generate';
+    }
+    btnVerify.addEventListener('click', verifyAvailability);
 
     function openOptionsModal(){
       return new Promise(resolve=>{
@@ -205,6 +276,8 @@
       if (!db || !selectedWP) { output.innerHTML = '<div class="card">Select a workplace first.</div>'; return; }
       const chosen = getSelectedWorkers();
       if (!chosen.length) { output.innerHTML = '<div class="card">Select at least one worker.</div>'; return; }
+      if (!verification.checked) { await verifyAvailability(); if (!verification.ok) return; }
+      if (!verification.ok) { output.innerHTML = '<div class="card">Fix availability issues before generating (see verification above).</div>'; return; }
       const opts = await openOptionsModal(); if (!opts) return;
       const { maxWorkersPerShift, maxHoursPerWorker, shiftSizes } = opts;
       status.textContent = 'Generating…';

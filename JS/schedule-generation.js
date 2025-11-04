@@ -187,34 +187,33 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId, ma
 
 	// Precheck: each WS must have at least 5 hours of availability within operating hours
 	function computeAvailableHoursWithinOpen(worker) {
-		let total = 0;
-		const perDay = {};
+		let total = 0; const perDay = {}; let maxBlock = 0;
 		for (const d of DAYS) {
-			const slots = windows[d]; let day = 0;
+			const slots = windows[d]; let day = 0; let run = 0;
 			for (const s of slots) {
-				if (isAvailable(worker, d, s.start, s.end)) { day += 1; total += 1; }
+				if (isAvailable(worker, d, s.start, s.end)) { day += 1; total += 1; run += 1; if (run > maxBlock) maxBlock = run; }
+				else { run = 0; }
 			}
 			perDay[d] = day;
 		}
-		return { total, perDay };
+		return { total, perDay, maxBlock };
 	}
 
 	// Assign WS 5 hours each
 	function fmtHM(min){ const h=Math.floor(min/60),mm=(min%60).toString().padStart(2,'0'); return `${h.toString().padStart(2,'0')}:${mm}`; }
 
 	for (const w of workStudy) {
-		const { total:availHrs, perDay } = computeAvailableHoursWithinOpen(w);
-		if (availHrs < 5) {
+		const { total:availHrs, perDay, maxBlock } = computeAvailableHoursWithinOpen(w);
+		if (maxBlock < 5) {
 			// Build a concise debug string: open windows by day and matched hours
 			const details = DAYS.map(d=>{
 				const o = hours[d];
 				if (!o || !o.open || !o.close) return `${d}: closed`;
-				const [oh,om] = o.open.split(':').map(Number); const [ch,cm]=o.close.split(':').map(Number);
 				const openStr = `${o.open}-${o.close}`;
 				const matched = perDay[d]||0;
 				return `${d}: ${openStr} • match ${matched}h`;
 			}).join(' \n ');
-			throw new Error(`Work Study availability issue for ${displayName(w)} — requires ≥5 hours within operating hours (has ${availHrs}h).\n\nOpen hours & matches:\n ${details}`);
+			throw new Error(`Work Study availability issue for ${displayName(w)} — needs a contiguous 5h block within operating hours (max block ${maxBlock}h; total ${availHrs}h).\n\nOpen hours & matches:\n ${details}`);
 		}
 		const ok = tryAssign(w, 5);
 		if (!ok) throw new Error(`Work Study availability issue for ${displayName(w)} — they must have at least 5 hours within operating hours.`);
