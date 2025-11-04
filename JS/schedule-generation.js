@@ -136,7 +136,17 @@ export async function generateScheduleFromWorkers(db, workers, { workplaceId, ma
 	// Segregate workers (Cover concept removed; rely on workStudy boolean only)
 	const isWS = w => (w.workStudy === true || String(w['Work Study']||'').toLowerCase() === 'yes' || String(w['Worker Type']||'').toLowerCase()==='work study');
 	// Exclude suspended workers if flagged
-	const pool = (workers||[]).filter(w => w && w.suspended !== true);
+	let pool = (workers||[]).filter(w => w && w.suspended !== true);
+
+	// Drop workers with no availability intersecting open hours to avoid cluttering generation
+	function hasAnyAvailabilityInOpen(w){
+		for (const d of DAYS){
+			const slots = windows[d];
+			for (const s of slots){ if (isAvailable(w, d, s.start, s.end)) return true; }
+		}
+		return false;
+	}
+	pool = pool.filter(hasAnyAvailabilityInOpen);
 	const workStudy = pool.filter(isWS);
 	const regular = pool.filter(w => !isWS(w));
 

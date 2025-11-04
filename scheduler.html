@@ -226,10 +226,12 @@
     function isAvailableRanges(ranges, start, end){ return (ranges||[]).some(r=> r.start<=start && r.end>=end); }
     async function verifyAvailability(){
       verifyOutput.innerHTML = '<div class="note">Checking…</div>';
-      const chosen = getSelectedWorkers(); if (!chosen.length){ verifyOutput.innerHTML='<div class="note">Select workers first.</div>'; verification={checked:true,ok:false,report:[]}; btnGenerate.disabled=true; return; }
+  let chosen = getSelectedWorkers(); if (!chosen.length){ verifyOutput.innerHTML='<div class="note">Select workers first.</div>'; verification={checked:true,ok:false,report:[]}; btnGenerate.disabled=true; return; }
       const hours = await loadHoursOfOperation(db); const windows = buildWindows(hours);
       const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
       const rows=[]; let ok=true; const failures=[];
+      // Auto-exclude workers with no availability string at all
+      chosen = chosen.filter(w => (w['Availability']||w['Days & Times Available']||'').trim().length>0);
       for (const w of chosen){
         const avStr = w['Availability'] || w['Days & Times Available'] || '';
         const av = parseAvail(avStr);
@@ -246,7 +248,8 @@
       const body=document.createElement('tbody');
       rows.forEach(r=>{ const tr=document.createElement('tr'); const status=r.pass?'OK':'Needs Fix'; tr.innerHTML = `<td>${r.w['First Name']||''} ${r.w['Last Name']||''}</td><td>${r.ws?'Yes':'No'}</td><td>${r.total}</td><td>${r.maxBlock}</td><td>${status}</td>`; body.appendChild(tr); });
       tbl.appendChild(body);
-      verifyOutput.innerHTML=''; verifyOutput.appendChild(tbl);
+  verifyOutput.innerHTML=''; verifyOutput.appendChild(tbl);
+  if (rows.length===0){ verifyOutput.innerHTML = '<div class="note">All selected workers have empty availability strings and were skipped.</div>'; verification={checked:true,ok:false,report:[]}; btnGenerate.disabled=true; return; }
       verification = { checked:true, ok, report:rows };
       btnGenerate.disabled = !ok;
       if (!ok) status.textContent = 'Verification failed — fix workers shown as "Needs Fix"'; else status.textContent = 'Verification passed — ready to generate';
