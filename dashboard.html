@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Workplace Scheduler Dashboard</title>
+	<style>
+		/* Minimal shell; the full styling and UI structure is ported from the original dashboard */
+		body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f8f9fa; color:#333; }
+		.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+		.container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+		.workplace-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap:1rem; }
+		.workplace-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:white; padding:1.25rem; border-radius:12px; cursor:pointer; text-align:center; }
+		.workplace-card.selected { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
+		.btn { padding: 0.75rem 1.25rem; border:none; border-radius:8px; cursor:pointer; font-weight:500; }
+		.btn-primary { background:#007bff; color:white; }
+		.btn-success { background:#28a745; color:white; }
+		.loading { text-align:center; color:#667eea; padding:1rem; }
+		.error { background:#f8d7da; border:1px solid #f5c6cb; color:#721c24; padding:1rem; border-radius:8px; margin:1rem 0; }
+		.info { background:#d1ecf1; border:1px solid #bee5eb; color:#0c5460; padding:1rem; border-radius:8px; margin:1rem 0; }
+	</style>
+</head>
+<body>
+	<div class="header">
+		<h1>🏢 Workplace Scheduler</h1>
+		<div>
+			<button class="btn" id="myAccountBtn" style="background:#eee;color:#333;margin-right:0.5rem;">👤 My Account</button>
+			<button class="btn" id="logoutBtn" style="background: rgba(255,255,255,0.2); color:white;">Logout</button>
+		</div>
+	</div>
+
+	<div class="container">
+		<div class="workplace-section">
+			<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+				<h2 style="margin:0;">Select Workplace</h2>
+				<button id="clearWorkplaceBtn" class="btn" style="background:#6c757d;color:white;">✕ Clear Selection</button>
+			</div>
+			<div class="workplace-grid">
+				<div class="workplace-card" data-wp="esports_lounge"><h4>🎮 eSports Lounge</h4><p>esports_lounge</p></div>
+				<div class="workplace-card" data-wp="esports_arena"><h4>🏟️ eSports Arena</h4><p>esports_arena</p></div>
+				<div class="workplace-card" data-wp="it_service_center"><h4>💻 IT Service Center</h4><p>it_service_center</p></div>
+			</div>
+		</div>
+
+		<div id="actions" style="display:none;margin:1rem 0;">
+			<button id="generateBtn" class="btn btn-primary">📅 Generate New Schedule</button>
+			<button id="viewCurrentBtn" class="btn btn-success">👁️ View Current Schedule</button>
+		</div>
+
+		<div id="scheduleDisplay" class="info">💡 Select a workplace above to get started with scheduling and management.</div>
+	</div>
+
+	<script type="module">
+		import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+		import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, query, where } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+		import { getStorage } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-storage.js';
+		import { getDBForWorkplace, getStorageForWorkplace } from './firebase/config.js';
+
+		// Auth user from localStorage
+		const user = JSON.parse(localStorage.getItem('user') || '{}');
+		if (!user || !user.email) {
+			// Redirect to login if not signed in
+			window.location.href = 'index.html';
+		}
+
+		// Current state
+		let selectedWorkplace = null;
+		let db = null; let storage = null;
+
+		function useWorkplace(id) {
+			selectedWorkplace = id;
+			db = getDBForWorkplace(id);
+			storage = getStorageForWorkplace(id);
+		}
+
+		// COLLECTION PATHS under per-workplace databases (flatter, no /workplaces/{id}/ prefix)
+		const Paths = {
+			workers: 'workers',
+			schedules: 'schedules',
+			announcements: 'announcements',
+			shift_postings: 'shift_postings',
+			coverage_requests: 'coverage_requests',
+			active_coverage: 'active_coverage'
+		};
+
+		// Minimal helpers from original app
+		async function loadWorkplaceData() {
+			// Attempt to fetch hours_of_operation if stored in a settings doc, otherwise default 9-5 M-F
+			// In the original schema, hours lived on workplaces collection; with per-DB, store in settings/general
+			try {
+				const settingsSnap = await getDocs(collection(db, 'settings'));
+				let hours = null;
+				settingsSnap.forEach(d => { const data = d.data(); if (data && data.hours_of_operation) hours = data.hours_of_operation; });
+				if (!hours) {
+					hours = {
+						Monday: { open: '09:00', close: '17:00' },
+						Tuesday: { open: '09:00', close: '17:00' },
+						Wednesday: { open: '09:00', close: '17:00' },
+						Thursday: { open: '09:00', close: '17:00' },
+						Friday: { open: '09:00', close: '17:00' },
+						Saturday: { open: null, close: null },
+						Sunday: { open: null, close: null }
+					};
+				}
+				return hours;
+			} catch (e) {
+				console.warn('Falling back to default hours:', e);
+				return {
+					Monday: { open: '09:00', close: '17:00' },
+					Tuesday: { open: '09:00', close: '17:00' },
+					Wednesday: { open: '09:00', close: '17:00' },
+					Thursday: { open: '09:00', close: '17:00' },
+					Friday: { open: '09:00', close: '17:00' },
+					Saturday: { open: null, close: null },
+					Sunday: { open: null, close: null }
+				};
+			}
+		}
+
+		async function fetchWorkers() {
+			const snap = await getDocs(collection(db, Paths.workers));
+			return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+		}
+
+		function parseAvailabilityString(text) {
+			// Very simplified parser matching the original idea
+			const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+			const map = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday' };
+			const availability = {};
+			if (!text) return availability;
+			text.split(',').map(s => s.trim()).forEach(block => {
+				const m = block.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+				if (!m) return;
+				const day = map[m[1]];
+				function toMinutes(h, mins, ap) {
+					let hh = parseInt(h,10);
+					let mm = mins?parseInt(mins,10):0;
+					if (ap) {
+						const apL = ap.toLowerCase();
+						if (apL === 'pm' && hh < 12) hh += 12;
+						if (apL === 'am' && hh === 12) hh = 0;
+					}
+					return hh*60+mm;
+				}
+				const start = toMinutes(m[2], m[3], m[4]);
+				const end = toMinutes(m[5], m[6], m[7]);
+				if (!availability[day]) availability[day] = [];
+				availability[day].push({ start, end });
+			});
+			return availability;
+		}
+
+		function isAvailable(worker, day, startMin, endMin) {
+			const slots = (worker.availabilityParsed && worker.availabilityParsed[day]) || [];
+			return slots.some(s => s.start <= startMin && s.end >= endMin);
+		}
+
+		// Core schedule generation honoring Work Study 5-hour rule
+		async function generateSchedule() {
+			const scheduleDisplay = document.getElementById('scheduleDisplay');
+			scheduleDisplay.innerHTML = '<div class="loading">🚀 Generating schedule...</div>';
+
+			const hours = await loadWorkplaceData();
+			const workers = await fetchWorkers();
+			// Normalize availability
+			workers.forEach(w => { if (typeof w['Availability'] === 'string') w.availabilityParsed = parseAvailabilityString(w['Availability']); else w.availabilityParsed = w.availability || {}; });
+
+			const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+			// Build open windows per day (1h blocks for simplicity)
+			const windows = {};
+			DAYS.forEach(d => {
+				const o = hours[d];
+				if (!o || !o.open || !o.close) { windows[d] = []; return; }
+				const [oh, om] = o.open.split(':').map(Number);
+				const [ch, cm] = o.close.split(':').map(Number);
+				const start = oh*60+om; const end = ch*60+cm;
+				const slots = [];
+				for (let t=start; t<end; t+=60) slots.push({ start:t, end:Math.min(t+60, end), assigned:[] });
+				windows[d] = slots;
+			});
+
+			// Assign Work Study exactly 5 hours
+			const workStudy = workers.filter(w => (w['Worker Type']==='Work Study' || w['Work Study']==='Yes') && w['Worker Type'] !== 'Cover');
+			const regular = workers.filter(w => !(w['Worker Type']==='Work Study' || w['Work Study']==='Yes') && w['Worker Type'] !== 'Cover');
+
+			const assignedHours = Object.fromEntries(workers.map(w => [w['Email'] || w.email, 0]));
+
+			function tryAssign(worker, neededHours) {
+				let remaining = neededHours;
+				for (const d of DAYS) {
+					for (const slot of windows[d]) {
+						if (slot.assigned.length >= 2) continue; // capacity 2
+						if (!isAvailable(worker, d, slot.start, slot.end)) continue;
+						const key = worker['Email'] || worker.email;
+						slot.assigned.push({ email:key, name:`${worker['First Name']||worker.first_name||''} ${worker['Last Name']||worker.last_name||''}`.trim(), ws: (w=> (w['Worker Type']==='Work Study'||w['Work Study']==='Yes'))(worker) });
+						assignedHours[key] += (slot.end-slot.start)/60;
+						remaining -= (slot.end-slot.start)/60;
+						if (remaining <= 0) return true;
+					}
+				}
+				return remaining <= 0;
+			}
+
+			// WS first
+			for (const w of workStudy) {
+				const ok = tryAssign(w, 5);
+				if (!ok) {
+					scheduleDisplay.innerHTML = `<div class="error">🚨 Work Study availability issue for ${w['First Name']} ${w['Last Name']} — they must have at least 5 hours within operating hours.</div>`;
+					return;
+				}
+			}
+
+			// Regulars: fair distribution
+			// target = remaining available capacity / number of regulars
+			const totalCapacity = Object.values(windows).flat().length * 2; // slots * 1h * capacity 2
+			const wsHours = workStudy.length * 5;
+			const remainingTarget = Math.max(0, totalCapacity - wsHours);
+			const targetPerRegular = regular.length>0 ? remainingTarget/regular.length : 0;
+
+			for (const w of regular) {
+				tryAssign(w, targetPerRegular);
+			}
+
+			// Persist as current schedule document
+			const scheduleDoc = { isCurrent:true, createdAt:new Date().toISOString(), workplace:selectedWorkplace, schedule: {} };
+			for (const d of DAYS) {
+				scheduleDoc.schedule[d] = windows[d].map(s => ({ start:s.start, end:s.end, assigned:s.assigned }));
+			}
+			// Upsert current schedule (replace existing current if any)
+			const existing = await getDocs(query(collection(db, Paths.schedules), where('isCurrent','==',true)));
+			if (!existing.empty) {
+				await updateDoc(existing.docs[0].ref, scheduleDoc);
+			} else {
+				await addDoc(collection(db, Paths.schedules), scheduleDoc);
+			}
+
+			// Render
+			const fmt = m => {
+				const h = Math.floor(m/60), mm = (m%60).toString().padStart(2,'0');
+				const ap = h>=12?'PM':'AM';
+				const hh = (h%12)||12; return `${hh}:${mm} ${ap}`;
+			};
+			let html = '';
+			for (const d of DAYS) {
+				html += `<h3 class="day-header">${d}</h3>`;
+				for (const s of scheduleDoc.schedule[d]) {
+					const names = s.assigned.map(a=>a.name||a.email).join(', ') || '(unfilled)';
+					html += `<div class="shift">${fmt(s.start)} - ${fmt(s.end)} — ${names}</div>`;
+				}
+			}
+			scheduleDisplay.innerHTML = html || '<div class="info">No shifts generated.</div>';
+		}
+
+		async function viewCurrentSchedule() {
+			const scheduleDisplay = document.getElementById('scheduleDisplay');
+			if (!db) { scheduleDisplay.innerHTML = '<div class="error">Select a workplace first.</div>'; return; }
+			const snap = await getDocs(query(collection(db, 'schedules'), where('isCurrent','==',true)));
+			if (snap.empty) { scheduleDisplay.innerHTML = '<div class="info">No current schedule found.</div>'; return; }
+			const data = snap.docs[0].data();
+			const DAYS = Object.keys(data.schedule||{});
+			const fmt = m => { const h=Math.floor(m/60),mm=(m%60).toString().padStart(2,'0'); const ap=h>=12?'PM':'AM'; const hh=(h%12)||12; return `${hh}:${mm} ${ap}`; };
+			let html='';
+			for (const d of DAYS) {
+				html += `<h3 class="day-header">${d}</h3>`;
+				for (const s of data.schedule[d]) {
+					const names = (s.assigned||[]).map(a=>a.name||a.email).join(', ') || '(unfilled)';
+					html += `<div class="shift">${fmt(s.start)} - ${fmt(s.end)} — ${names}</div>`;
+				}
+			}
+			scheduleDisplay.innerHTML = html || '<div class="info">No shifts to display.</div>';
+		}
+
+		// Wire UI
+		const cards = document.querySelectorAll('.workplace-card');
+		const scheduleDisplay = document.getElementById('scheduleDisplay');
+		cards.forEach(card => card.addEventListener('click', async (e)=>{
+			cards.forEach(c=>c.classList.remove('selected'));
+			card.classList.add('selected');
+			const id = card.getAttribute('data-wp');
+			useWorkplace(id);
+			document.getElementById('actions').style.display = 'block';
+			scheduleDisplay.innerHTML = '<div class="loading">🔄 Loading workplace data...</div>';
+			try {
+				await viewCurrentSchedule();
+			} catch (err) { scheduleDisplay.innerHTML = `<div class="error">${err.message}</div>`; }
+		}));
+
+		document.getElementById('clearWorkplaceBtn').addEventListener('click', ()=>{
+			selectedWorkplace = null; db=null; storage=null;
+			cards.forEach(c=>c.classList.remove('selected'));
+			document.getElementById('actions').style.display='none';
+			scheduleDisplay.innerHTML = '<div class="info">💡 Select a workplace above to get started with scheduling and management.</div>';
+		});
+
+		document.getElementById('generateBtn').addEventListener('click', async ()=>{
+			if (!db) { scheduleDisplay.innerHTML = '<div class="error">Select a workplace first.</div>'; return; }
+			try { await generateSchedule(); } catch (e) { scheduleDisplay.innerHTML = `<div class=error>${e.message}</div>`; }
+		});
+		document.getElementById('viewCurrentBtn').addEventListener('click', viewCurrentSchedule);
+
+		// Logout
+		document.getElementById('logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('user'); window.location.href='index.html'; });
+		document.getElementById('myAccountBtn').addEventListener('click', ()=>{ alert(`Logged in as ${user.email}\nAdmin: ${user.isAdmin? 'Yes': 'No'}`); });
+	</script>
+</body>
+</html>

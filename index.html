@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Workplace Scheduler - Login</title>
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+			min-height: 100vh; display: flex; align-items: center; justify-content: center; position: relative;
+		}
+		.logo-left { position: absolute; left: 30px; top: 50%; transform: translateY(-50%); width: 350px; height: 350px; }
+		.logo-right { position: absolute; right: 30px; top: 50%; transform: translateY(-50%); max-width: 400px; height: auto; }
+		.login-container { background: white; padding: 3rem; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; z-index: 10; }
+		.logo { font-size: 3rem; margin-bottom: 1rem; }
+		h1 { color: #333; margin-bottom: 2rem; font-weight: 600; }
+		.form-group { margin-bottom: 1.5rem; text-align: left; }
+		label { display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500; }
+		input { width: 100%; padding: 0.875rem; border: 2px solid #e1e5e9; border-radius: 10px; font-size: 1rem; transition: border-color 0.3s ease; }
+		input:focus { outline: none; border-color: #667eea; }
+		.btn { width: 100%; padding: 1rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: transform 0.2s ease; }
+		.btn:hover { transform: translateY(-2px); }
+		.btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+		.error { background: #fee; color: #c33; padding: 1rem; border-radius: 10px; margin-bottom: 1rem; border: 1px solid #fcc; }
+		.loading { color: #667eea; margin-top: 1rem; }
+		.demo-info { background: #e3f2fd; color: #1976d2; padding: 1rem; border-radius: 10px; margin-bottom: 1rem; font-size: 0.9rem; }
+		@media (max-width: 1200px) { .logo-left, .logo-right { display: none; } }
+	</style>
+</head>
+<body>
+	<img src="https://raw.githubusercontent.com/finn1817/Fredonia-Workplace-Dashboard/refs/heads/main/images/suny-fredonia-logo-250x250-.webp" alt="SUNY Fredonia Logo" class="logo-left">
+	<img src="https://raw.githubusercontent.com/finn1817/Fredonia-Workplace-Dashboard/refs/heads/main/images/sunyfredname.webp" alt="SUNY Fredonia Name" class="logo-right">
+    
+	<div class="login-container">
+		<div class="logo">🏢</div>
+		<h1>Workplace Scheduler</h1>
+        
+		<div class="demo-info" style="background:#e3f2fd;color:#1976d2;">
+			Welcome! Please sign in or create an account to get started.
+		</div>
+        
+		<div id="errorMsg" style="display: none;" class="error"></div>
+        
+		<form id="loginForm">
+			<div class="form-group">
+				<label for="email">Email Address</label>
+				<input type="email" id="email" required>
+			</div>
+            
+			<div class="form-group">
+				<label for="password">Password</label>
+				<input type="password" id="password" required>
+			</div>
+            
+			<button type="submit" class="btn" id="loginBtn">Sign In</button>
+		</form>
+		<button class="btn" id="showRegisterBtn" style="margin-top:1rem;background:#eee;color:#333;">Create Account</button>
+		<form id="registerForm" style="display:none;">
+			<div class="form-group">
+				<label for="regFirstName">First Name</label>
+				<input type="text" id="regFirstName" required>
+			</div>
+			<div class="form-group">
+				<label for="regLastName">Last Name</label>
+				<input type="text" id="regLastName" required>
+			</div>
+			<div class="form-group">
+				<label for="regEmail">Email Address</label>
+				<input type="email" id="regEmail" required>
+			</div>
+			<div class="form-group">
+				<label for="regPassword">Password</label>
+				<input type="password" id="regPassword" required>
+				<div style="font-size: 0.85rem; color: #dc3545; margin-top: 0.25rem; padding: 0.5rem; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">
+					⚠️ <strong>Security Warning:</strong> Do NOT use the same password as your Fredonia email account. Use a unique password for this system.
+				</div>
+			</div>
+			<div class="form-group">
+				<label for="regConfirmPassword">Confirm Password</label>
+				<input type="password" id="regConfirmPassword" required>
+			</div>
+			<div class="form-group">
+				<label for="regPhone">Phone Number <span style="color:#888;">(optional)</span></label>
+				<input type="tel" id="regPhone" pattern="[0-9\-\+\(\) ]*">
+			</div>
+			<button type="submit" class="btn" id="registerBtn">Create Account</button>
+			<button type="button" class="btn" id="backToLoginBtn" style="background:#eee;color:#333;margin-top:0.5rem;">Back to Login</button>
+		</form>
+		<div id="loadingMsg" class="loading" style="display: none;">🔄 Signing in...</div>
+	</div>
+
+	<script type="module">
+		import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+		import { getFirestore, collection, query, where, getDocs, addDoc, updateDoc, doc } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+
+		// AUTH DATABASE CONFIG (unchanged)
+		const authConfig = {
+			apiKey: "AIzaSyAt_HJiP_uuWC7-AqMKlfLwjQFsESjB364",
+			authDomain: "my-admin-dashboard-b9c89.firebaseapp.com",
+			projectId: "my-admin-dashboard-b9c89",
+			storageBucket: "my-admin-dashboard-b9c89.firebasestorage.app",
+			messagingSenderId: "1001105953619",
+			appId: "1:1001105953619:web:1e2cf52a9ff37aeb5207a6",
+			measurementId: "G-DGTX5YCKYF"
+		};
+
+		const authApp = initializeApp(authConfig);
+		const authDb = getFirestore(authApp);
+
+		const user = JSON.parse(localStorage.getItem('user') || '{}');
+		if (user.email) { window.location.href = 'dashboard.html'; }
+
+		async function getClientIP() {
+			try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); return d.ip; }
+			catch { return 'Unknown'; }
+		}
+
+		document.getElementById('loginForm').addEventListener('submit', async (e) => {
+			e.preventDefault();
+			const email = document.getElementById('email').value;
+			const password = document.getElementById('password').value;
+			const errorMsg = document.getElementById('errorMsg');
+			const loadingMsg = document.getElementById('loadingMsg');
+			const loginBtn = document.getElementById('loginBtn');
+			errorMsg.style.display = 'none'; loadingMsg.style.display = 'block'; loginBtn.disabled = true;
+			let clientIP = 'Unknown';
+			try {
+				clientIP = await getClientIP();
+				const usersRef = collection(authDb, 'users');
+				const q = query(usersRef, where('email', '==', email));
+				const snapshot = await getDocs(q);
+				let userData = null; snapshot.forEach(docu => userData = { id: docu.id, ...docu.data() });
+				if (!userData) throw new Error('User not found');
+				if (userData.password !== password) throw new Error('Invalid password');
+				if (userData.suspended === true) throw new Error('Account suspended');
+				await updateDoc(doc(authDb, 'users', userData.id), { loginTime: new Date().toISOString() });
+				localStorage.setItem('user', JSON.stringify({
+					email: userData.email,
+					uid: userData.id,
+					isAdmin: userData.isAdmin === 1 || userData.isAdmin === true,
+					firstName: userData.firstName || '',
+					lastName: userData.lastName || '',
+					phone: userData.phone || '',
+					password: userData.password || '',
+					loginTime: new Date().toISOString()
+				}));
+				window.location.href = 'dashboard.html';
+			} catch (error) {
+				loadingMsg.style.display = 'none'; loginBtn.disabled = false; errorMsg.style.display = 'block';
+				switch (error.message) {
+					case 'User not found': errorMsg.textContent = 'No account found with this email address.'; break;
+					case 'Invalid password': errorMsg.textContent = 'Incorrect password. Please try again.'; break;
+					case 'Account suspended': errorMsg.textContent = '🚫 This account has been suspended. Please contact an administrator.'; break;
+					default: errorMsg.textContent = 'Login failed. Please check your credentials and try again.';
+				}
+			}
+		});
+
+		const showRegisterBtn = document.getElementById('showRegisterBtn');
+		const loginForm = document.getElementById('loginForm');
+		const registerForm = document.getElementById('registerForm');
+		const backToLoginBtn = document.getElementById('backToLoginBtn');
+		const errorMsg = document.getElementById('errorMsg');
+		showRegisterBtn.onclick = () => { loginForm.style.display = 'none'; showRegisterBtn.style.display = 'none'; registerForm.style.display = 'block'; errorMsg.style.display = 'none'; };
+		backToLoginBtn.onclick = () => { registerForm.style.display = 'none'; loginForm.style.display = 'block'; showRegisterBtn.style.display = 'block'; errorMsg.style.display = 'none'; };
+
+		registerForm.addEventListener('submit', async (e) => {
+			e.preventDefault(); errorMsg.style.display = 'none';
+			const firstName = document.getElementById('regFirstName').value.trim();
+			const lastName = document.getElementById('regLastName').value.trim();
+			const email = document.getElementById('regEmail').value.trim();
+			const password = document.getElementById('regPassword').value;
+			const confirmPassword = document.getElementById('regConfirmPassword').value;
+			const phone = document.getElementById('regPhone').value.trim();
+			if (!firstName || !lastName) return (errorMsg.textContent='First and last name are required.', errorMsg.style.display='block');
+			if (!email || !password || !confirmPassword) return (errorMsg.textContent='All fields are required.', errorMsg.style.display='block');
+			if (password !== confirmPassword) return (errorMsg.textContent='Passwords do not match.', errorMsg.style.display='block');
+			if (password.length < 6) return (errorMsg.textContent='Password must be at least 6 characters.', errorMsg.style.display='block');
+			try {
+				const usersRef = collection(authDb, 'users');
+				const q = query(usersRef, where('email', '==', email));
+				const querySnapshot = await getDocs(q);
+				if (!querySnapshot.empty) { errorMsg.textContent = 'An account with this email already exists.'; errorMsg.style.display='block'; return; }
+				const newUserRef = await addDoc(usersRef, { firstName, lastName, phone, email, password, isAdmin: 0, suspended: false, loginTime: new Date().toISOString() });
+				localStorage.setItem('user', JSON.stringify({ email, isAdmin: false, loginTime: new Date().toISOString(), uid: newUserRef.id, firstName, lastName, phone }));
+				window.location.href = 'dashboard.html';
+			} catch (err) { errorMsg.textContent = 'Registration failed. Please try again.'; errorMsg.style.display='block'; }
+		});
+	</script>
+
+	<div style="position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.1); padding: 0.5rem; text-align: center; backdrop-filter: blur(10px);">
+		<p style="margin: 0; font-size: 0.8rem; color: #666;">
+			Need help? Contact <a href="mailto:finn1817@fredonia.edu?subject=Workplace%20Scheduler%20Login%20Issue" style="color: #007bff;">finn1817@fredonia.edu</a>
+		</p>
+	</div>
+</body>
+</html>

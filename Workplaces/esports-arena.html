@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>eSports Arena — Workplace</title>
+</head>
+<body>
+	<div id="app"></div>
+
+	<script type="module">
+		import '../firebase/config.js'; // load multi-app configs
+		import { bootstrap } from '../JS/workplace-page.js';
+		// Initialize this page for the esports_arena workplace
+		bootstrap({ workplaceId: 'esports_arena' });
+	</script>
+</body>
+</html>

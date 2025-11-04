@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Manage Workers</title>
+</head>
+<body>
+	<div id="app"></div>
+
+	<script type="module">
+		import './firebase/config.js';
+		import { bootstrap } from './JS/workplace-page.js';
+		const params = new URLSearchParams(location.search);
+		const wp = params.get('wp');
+		if (!wp) {
+			document.getElementById('app').innerHTML = `
+				<div class="container">
+					<h1>Select a workplace</h1>
+					<ul>
+						<li><a href="./Workplaces/esports-shultz.html">eSports Lounge (Shultz)</a></li>
+						<li><a href="./Workplaces/esports-arena.html">eSports Arena</a></li>
+						<li><a href="./Workplaces/ITS-Service-Center.html">IT Service Center</a></li>
+					</ul>
+				</div>`;
+		} else {
+			bootstrap({ workplaceId: wp });
+		}
+	</script>
+</body>
+</html>
