@@ -387,19 +387,13 @@
 					const bd = h('button', { class:'btn btn-danger' }, 'Delete'); bd.onclick = async ()=>{ if (!confirm('Delete worker?')) return; await deleteWorker(getDBForWorkplace(r.__wp), r.id); await render(); };
 					cell.append(be, bd);
 				}
-				tbody.appendChild(tr);
-
-			const tbody = h('tbody');
-			rows.forEach(u=>{
-
-				tbody.appendChild(tr);
-			});
+					tbody.appendChild(tr);
+				}
+				table.appendChild(tbody);
+				return table;
 			}
-						table.appendChild(tbody);
-						return table;
-					}
 
-					function renderUsersTable(rows) {
+						function renderUsersTable(rows) {
 						const table = h('table');
 						table.appendChild(h('thead',{ html:`<tr><th>First</th><th>Last</th><th>Email</th><th>Phone</th><th>Admin</th><th>Actions</th></tr>` }));
 						const tbody = h('tbody');
