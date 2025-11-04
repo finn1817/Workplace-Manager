@@ -167,7 +167,13 @@
 
     let selectedWP = null; let db = null; let isAdmin = false;
     let allWorkers = [];
-    let pendingSchedule = null; // Holds schedule before saving    function h(tag, attrs={}, children=[]) { const e=document.createElement(tag); Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); }); (Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c)); return e; }
+    let pendingSchedule = null; // Holds schedule before saving
+    function h(tag, attrs={}, children=[]) {
+      const e = document.createElement(tag);
+      Object.entries(attrs).forEach(([k,v])=>{ if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); });
+      (Array.isArray(children)?children:[children]).forEach(c=>e.appendChild(typeof c==='string'?document.createTextNode(c):c));
+      return e;
+    }
 
     function renderWorkersPicklist(workers) {
       const table = h('table');
