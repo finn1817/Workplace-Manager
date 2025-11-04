@@ -21,10 +21,10 @@
 		.status-ok { background:#bbf7d0; }
 		.status-bad { background:#fecaca; }
 		/* Modal styles */
-		.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:50; }
-		.modal { width: min(720px, 92vw); background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(0,0,0,.25); overflow:hidden; }
-		.modal header { background:#111827; color:#fff; padding:.75rem 1rem; display:flex; align-items:center; justify-content:space-between; }
-		.modal .body { padding:1rem; }
+		.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:50; padding: 1rem; }
+		.modal { width: min(720px, 92vw); max-height: 92vh; background:#fff; border-radius:12px; box-shadow:0 20px 40px rgba(0,0,0,.25); overflow:hidden; display:flex; flex-direction:column; }
+		.modal header { background:#111827; color:#fff; padding:.75rem 1rem; display:flex; align-items:center; justify-content:space-between; flex: 0 0 auto; }
+		.modal .body { padding:1rem; overflow:auto; flex: 1 1 auto; }
 		.form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem .75rem; }
 		.form-grid label { font-size:.85rem; color:#374151; }
 		.form-grid input, .form-grid select, .form-grid textarea { width:100%; padding:.5rem; border:1px solid #e5e7eb; border-radius:8px; }
@@ -449,6 +449,12 @@
 					resolve({ data, workplaces: selectedWps, cleanup: (mode==='edit') });
 				};
 				overlay.style.display='flex';
+				// Ensure modal opens scrolled to top and focus first field
+				setTimeout(()=>{
+					const modal = overlay.querySelector('.modal');
+					const body = overlay.querySelector('.modal .body');
+					if (modal) modal.scrollTop = 0; if (body) body.scrollTop = 0; try { el.first.focus(); } catch {}
+				}, 0);
 			});
 		}
 
